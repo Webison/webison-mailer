@@ -1,5 +1,6 @@
 <script setup>
 import { computed, reactive } from 'vue'
+import { frameDocument } from '../utils/frameDocument.mjs'
 
 const props = defineProps({
   signatures: { type: Array, default: () => [] },
@@ -27,6 +28,7 @@ const linkedLabel = computed(() => {
   if (!list.length) return 'Nessun account collegato'
   return list.map((a) => a.email || a.name).join(', ')
 })
+const previewDocument = computed(() => frameDocument(form.body))
 
 function resetForm() {
   Object.assign(form, { id: null, name: '', body: '', isHtml: false, isDefault: false })
@@ -140,7 +142,7 @@ function remove() {
                 </div>
                 <div class="field grow">
                   <label>Anteprima</label>
-                  <iframe class="preview-frame" sandbox="" :srcdoc="form.body || ''" title="Anteprima firma" />
+                  <iframe class="preview-frame" sandbox="" :srcdoc="previewDocument" title="Anteprima firma" />
                 </div>
               </div>
 

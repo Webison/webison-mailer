@@ -3,6 +3,7 @@ import { onMounted, computed, ref, onBeforeUnmount } from 'vue'
 import { useMail } from './composables/useMail'
 import ComposeDialog from './components/ComposeDialog.vue'
 import SettingsShell from './components/SettingsShell.vue'
+import { frameDocument } from './utils/frameDocument.mjs'
 
 const {
   state,
@@ -71,6 +72,7 @@ const isSentFolder = computed(() => {
 const isTrashFolder = computed(() => isTrashPath(state.folder))
 
 const bodyHtml = computed(() => state.selected?.html || '')
+const bodyHtmlDocument = computed(() => frameDocument(bodyHtml.value))
 const bodyText = computed(() => state.selected?.text || '')
 
 const previewText = (m) => m.text || stripHtml(m.html || '')
@@ -470,7 +472,7 @@ onBeforeUnmount(() => {
               v-if="bodyHtml"
               class="mail-frame"
               sandbox=""
-              :srcdoc="bodyHtml"
+              :srcdoc="bodyHtmlDocument"
               title="Contenuto messaggio"
             />
             <pre v-else>{{ bodyText || '(nessun contenuto)' }}</pre>

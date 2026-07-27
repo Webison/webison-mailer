@@ -1,5 +1,8 @@
 <script setup>
-defineProps({
+import { computed } from 'vue'
+import { frameDocument } from '../utils/frameDocument.mjs'
+
+const props = defineProps({
   model: { type: Object, required: true },
   contacts: { type: Array, default: () => [] },
   loading: Boolean,
@@ -7,6 +10,8 @@ defineProps({
 })
 
 defineEmits(['back', 'send'])
+
+const previewDocument = computed(() => frameDocument(props.model.html))
 </script>
 
 <template>
@@ -84,7 +89,7 @@ defineEmits(['back', 'send'])
               class="editor mono"
               placeholder="<p>Ciao</p>"
             />
-            <iframe class="preview-frame" sandbox="" :srcdoc="model.html || ''" title="Anteprima" />
+            <iframe class="preview-frame" sandbox="" :srcdoc="previewDocument" title="Anteprima" />
           </div>
           <p v-if="error" class="status error">{{ error }}</p>
         </div>
