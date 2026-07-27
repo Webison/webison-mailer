@@ -501,7 +501,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="dialog-body">
           <p v-if="updateInfo.status === 'ready'" class="error-text">
-            La versione {{ updateInfo.version }} è stata scaricata. Riavvia per installarla.
+            La versione {{ updateInfo.version }} è pronta. L'app si chiuderà, si aggiornerà da sola e si riaprirà (senza wizard di installazione).
           </p>
           <p v-else-if="updateInfo.status === 'downloading'" class="error-text">
             Download della versione {{ updateInfo.version || '' }} in corso… {{ updateInfo.percent }}%
@@ -522,7 +522,7 @@ onBeforeUnmount(() => {
             class="btn btn-primary"
             @click="installUpdateNow"
           >
-            Riavvia ora
+            Aggiorna e riavvia
           </button>
           <button class="btn btn-ghost" @click="dismissUpdate">
             {{ updateInfo.status === 'ready' ? 'Più tardi' : 'OK' }}
@@ -550,7 +550,7 @@ onBeforeUnmount(() => {
           class="btn btn-primary btn-sm"
           @click="installUpdateNow"
         >
-          Riavvia
+          Aggiorna
         </button>
         <button class="btn btn-ghost btn-sm" @click="dismissUpdate">Nascondi</button>
       </div>

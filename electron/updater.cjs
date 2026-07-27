@@ -96,7 +96,10 @@ function checkForUpdates() {
 }
 
 function installUpdate() {
-  autoUpdater.quitAndInstall(false, true)
+  // true = installazione silenziosa NSIS (/S): niente wizard, poi riapre l'app
+  setImmediate(() => {
+    autoUpdater.quitAndInstall(true, true)
+  })
 }
 
 module.exports = {
