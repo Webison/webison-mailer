@@ -67,8 +67,28 @@ jobs:
           UPDATE_CHECK_TOKEN: ${{ secrets.UPDATE_CHECK_TOKEN }}
         run: node scripts/prepare-update-auth.cjs
 
-      - name: Build and publish GitHub Release
+      - name: Build Windows installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EP_DRAFT: "false"
-        run: npm run release
+        run: npm run dist
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          SETUP="release/Webison Mailer-Setup-${VERSION}.exe"
+          BLOCKMAP="release/Webison Mailer-Setup-${VERSION}.exe.blockmap"
+          YML="release/latest.yml"
+          test -f "$SETUP"
+          test -f "$YML"
+
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            gh release upload "v${VERSION}" "$SETUP" "$YML" "$BLOCKMAP" --clobber
+          else
+            gh release create "v${VERSION}" "$SETUP" "$YML" "$BLOCKMAP" \
+              --title "Webison Mailer ${VERSION}" \
+              --notes "Release automatica v${VERSION}" \
+              --verify-tag
+          fi
