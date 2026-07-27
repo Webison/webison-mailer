@@ -6,6 +6,8 @@ const test = require('node:test')
 
 const { classifyCode, mailErrorInfo, mailSuccessInfo } = require('../electron/mail/errors.cjs')
 const { normalizeAccountInput, validAccountId } = require('../electron/mail/validation.cjs')
+const { safeExternalUrl } = require('../electron/mail/links.cjs')
+const { deleteMessagesWithClient } = require('../electron/mail/imap.cjs')
 const smtp = require('../electron/mail/smtp.cjs')
 
 const ACCOUNT_ID = '26b52818-ab6e-4a68-a9b0-7c3c3e4dec47'
@@ -76,6 +78,12 @@ test('lo store impedisce traversal tramite account e cartella', () => {
   store.saveMessages(ACCOUNT_ID, '..', [{ uid: 1, subject: 'test' }])
   const expected = path.join(tempRoot, 'webison-data', 'mail', ACCOUNT_ID, '_dotdot', 'messages.json')
   assert.equal(fs.existsSync(expected), true)
+
+  store.saveMessages(ACCOUNT_ID, 'INBOX', [{ uid: 10, subject: 'da spostare' }])
+  const moved = store.moveMessages(ACCOUNT_ID, 'INBOX', 'Trash', [10], { 10: 99 })
+  assert.equal(moved.source.length, 0)
+  assert.equal(moved.moved[0].uid, 99)
+  assert.equal(store.getMessage(ACCOUNT_ID, 'Trash', 99).subject, 'da spostare')
 })
 
 test('il transport SMTP disabilita accesso a file e URL', () => {
@@ -90,4 +98,59 @@ test('il transport SMTP disabilita accesso a file e URL', () => {
   assert.equal(transporter.options.disableUrlAccess, true)
   assert.equal(transporter.options.greetingTimeout, 10000)
   transporter.close()
+})
+
+function fakeImapClient({ boxes = [], moveResult = true, deleteResult = true } = {}) {
+  return {
+    list: async () => boxes,
+    getMailboxLock: async () => ({ release() {} }),
+    messageMove: async () => moveResult,
+    messageDelete: async () => deleteResult,
+  }
+}
+
+test('sposta nel Cestino solo quando il server conferma il MOVE', async () => {
+  const client = fakeImapClient({
+    boxes: [{ path: 'Trash', name: 'Trash', specialUse: '\\Trash' }],
+    moveResult: { uidMap: new Map([[10, 99]]) },
+  })
+  const result = await deleteMessagesWithClient(client, 'INBOX', [10])
+  assert.equal(result.trashed, true)
+  assert.equal(result.trashPath, 'Trash')
+  assert.deepEqual(result.uidMap, { 10: 99 })
+})
+
+test('non cancella definitivamente se il server non espone un Cestino', async () => {
+  const client = fakeImapClient({ boxes: [] })
+  await assert.rejects(
+    () => deleteMessagesWithClient(client, 'INBOX', [10]),
+    /Cestino non trovata/,
+  )
+})
+
+test('considera un MOVE false come errore e mantiene la cache sorgente', async () => {
+  const client = fakeImapClient({
+    boxes: [{ path: 'Trash', name: 'Trash', specialUse: '\\Trash' }],
+    moveResult: false,
+  })
+  await assert.rejects(
+    () => deleteMessagesWithClient(client, 'INBOX', [10]),
+    /non ha confermato lo spostamento/,
+  )
+})
+
+test('consente la cancellazione permanente solo quando richiesta', async () => {
+  const client = fakeImapClient({ deleteResult: true })
+  const result = await deleteMessagesWithClient(client, 'Trash', [99], { permanent: true })
+  assert.equal(result.permanent, true)
+  assert.equal(result.trashed, false)
+})
+
+test('consente nel browser solo URL HTTP e HTTPS senza credenziali', () => {
+  assert.equal(safeExternalUrl('https://example.com/path'), 'https://example.com/path')
+  assert.equal(safeExternalUrl('http://example.com'), 'http://example.com/')
+  assert.equal(safeExternalUrl('https://user:secret@example.com'), null)
+  assert.equal(safeExternalUrl('javascript:alert(1)'), null)
+  assert.equal(safeExternalUrl('file:///C:/Windows/System32'), null)
+  assert.equal(safeExternalUrl('data:text/html,test'), null)
 })

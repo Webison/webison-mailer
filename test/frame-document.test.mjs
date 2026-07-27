@@ -18,3 +18,9 @@ test('inserisce lo stile base prima degli stili dichiarati dalla mail', () => {
 test('mantiene vuoto un documento senza contenuto', () => {
   assert.equal(frameDocument(''), '')
 })
+
+test('imposta i link dell’email per l’apertura esterna', () => {
+  const document = frameDocument('<a href="https://example.com">Apri</a>')
+  assert.match(document, /<base target="_blank">/)
+  assert.ok(document.indexOf('<base target="_blank">') < document.indexOf('<a href='))
+})

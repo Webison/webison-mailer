@@ -150,6 +150,23 @@ function removeMessages(accountId, folder, uids) {
   return next
 }
 
+function moveMessages(accountId, sourceFolder, destinationFolder, uids, uidMap = {}) {
+  const set = new Set((Array.isArray(uids) ? uids : [uids]).map(String))
+  const source = listMessages(accountId, sourceFolder)
+  const selected = source.filter((message) => set.has(String(message.uid)))
+  const remaining = source.filter((message) => !set.has(String(message.uid)))
+  const moved = selected
+    .map((message) => {
+      const destinationUid = uidMap?.[String(message.uid)]
+      return destinationUid == null ? null : { ...message, uid: destinationUid }
+    })
+    .filter(Boolean)
+
+  writeJson(messagesPath(accountId, sourceFolder), remaining)
+  if (moved.length) saveMessages(accountId, destinationFolder, moved)
+  return { source: remaining, moved }
+}
+
 function listContacts() {
   return readJson(contactsPath(), [])
 }
@@ -272,6 +289,7 @@ module.exports = {
   setMessageSeen,
   clearMessages,
   removeMessages,
+  moveMessages,
   listContacts,
   saveContact,
   deleteContact,

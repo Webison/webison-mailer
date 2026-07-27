@@ -471,7 +471,7 @@ onBeforeUnmount(() => {
             <iframe
               v-if="bodyHtml"
               class="mail-frame"
-              sandbox=""
+              sandbox="allow-popups"
               :srcdoc="bodyHtmlDocument"
               title="Contenuto messaggio"
             />

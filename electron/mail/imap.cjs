@@ -255,26 +255,45 @@ function uidRange(uids) {
   return uids.map(String).join(',')
 }
 
+function serializeUidMap(uidMap) {
+  if (!(uidMap instanceof Map)) return null
+  return Object.fromEntries([...uidMap].map(([source, destination]) => [String(source), destination]))
+}
+
+async function deleteMessagesWithClient(client, folder, list, { permanent = false } = {}) {
+  const trashPath = permanent ? null : await resolveTrashPath(client)
+  const inTrash = Boolean(trashPath && trashPath === folder)
+  if (!permanent && !inTrash && !trashPath) {
+    throw new Error('Cartella Cestino non trovata sul server. Il messaggio non è stato eliminato.')
+  }
+  const doPermanent = Boolean(permanent) || inTrash
+
+  const lock = await client.getMailboxLock(folder)
+  try {
+    if (doPermanent) {
+      const deleted = await client.messageDelete(uidRange(list), { uid: true })
+      if (deleted === false) throw new Error('Il server non ha confermato la cancellazione dei messaggi')
+      return { trashed: false, permanent: true, trashPath }
+    }
+    const moved = await client.messageMove(uidRange(list), trashPath, { uid: true })
+    if (!moved) throw new Error('Il server non ha confermato lo spostamento nel Cestino')
+    return {
+      trashed: true,
+      permanent: false,
+      trashPath,
+      uidMap: serializeUidMap(moved.uidMap),
+    }
+  } finally {
+    lock.release()
+  }
+}
+
 async function deleteMessages(account, folder, uids, { permanent = false } = {}) {
   const list = (Array.isArray(uids) ? uids : [uids]).filter((u) => u != null && !String(u).startsWith('local-'))
   if (!list.length) return { trashed: false, permanent: false }
 
   return withClient(account, async (client) => {
-    const trashPath = await resolveTrashPath(client)
-    const inTrash = Boolean(trashPath && trashPath === folder)
-    const doPermanent = Boolean(permanent) || inTrash || !trashPath
-
-    const lock = await client.getMailboxLock(folder)
-    try {
-      if (doPermanent) {
-        await client.messageDelete(uidRange(list), { uid: true })
-        return { trashed: false, permanent: true, trashPath }
-      }
-      await client.messageMove(uidRange(list), trashPath, { uid: true })
-      return { trashed: true, permanent: false, trashPath }
-    } finally {
-      lock.release()
-    }
+    return deleteMessagesWithClient(client, folder, list, { permanent })
   })
 }
 
@@ -303,6 +322,7 @@ module.exports = {
   setMessageSeen,
   markAllMessagesSeen,
   deleteMessages,
+  deleteMessagesWithClient,
   emptyTrash,
   resolveTrashPath,
   verify,

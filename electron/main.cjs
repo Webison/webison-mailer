@@ -8,6 +8,7 @@ const watcher = require('./mail/watcher.cjs')
 const updater = require('./updater.cjs')
 const { asFriendlyError, mailErrorInfo, mailSuccessInfo } = require('./mail/errors.cjs')
 const { configError, normalizeAccountInput, validAccountId } = require('./mail/validation.cjs')
+const { safeExternalUrl } = require('./mail/links.cjs')
 
 const isDev = !app.isPackaged
 let mainWindow
@@ -38,6 +39,13 @@ async function runMailOperation(context, operation) {
   } catch (err) {
     throw asFriendlyError(err, context)
   }
+}
+
+function openExternalUrl(value) {
+  const url = safeExternalUrl(value)
+  if (!url) return false
+  shell.openExternal(url).catch(() => {})
+  return true
 }
 
 const THEME_UI = {
@@ -83,7 +91,18 @@ function createWindow() {
     },
   })
 
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalUrl(url)
+    return { action: 'deny' }
+  })
+  mainWindow.webContents.on('will-frame-navigate', (event) => {
+    if (event.isMainFrame) {
+      if (mainWindow.webContents.getURL()) event.preventDefault()
+      return
+    }
+    event.preventDefault()
+    openExternalUrl(event.url)
+  })
   mainWindow.webContents.on('will-navigate', (event) => {
     if (mainWindow.webContents.getURL()) event.preventDefault()
   })
@@ -297,13 +316,32 @@ handle('mail:delete', async (_e, { accountId, folder, storeAs, uids, permanent }
 
   const storeKey = storeAs || folder || 'INBOX'
   const remote = list.filter((u) => !String(u).startsWith('local-'))
+  let deleteResult = null
   if (remote.length && folder) {
-    await runMailOperation(
+    deleteResult = await runMailOperation(
       mailContext('IMAP', account, 'eliminazione messaggi'),
       () => imap.deleteMessages(withPassword(account), folder, remote, {
         permanent: Boolean(permanent),
       }),
     )
+  }
+  if (deleteResult?.trashed && deleteResult.trashPath) {
+    const cached = store.moveMessages(
+      accountId,
+      storeKey,
+      deleteResult.trashPath,
+      list,
+      deleteResult.uidMap || {},
+    )
+    if (cached.moved.length < remote.length) {
+      try {
+        const trashMessages = await imap.fetchMessages(withPassword(account), deleteResult.trashPath)
+        store.saveMessages(accountId, deleteResult.trashPath, trashMessages)
+      } catch {
+        // Il MOVE è già riuscito: il Cestino verrà sincronizzato quando viene aperto.
+      }
+    }
+    return cached.source
   }
   return store.removeMessages(accountId, storeKey, list)
 })
@@ -395,11 +433,5 @@ handle('settings:set', (_e, patch) => {
 })
 
 handle('shell:openExternal', (_e, value) => {
-  try {
-    const url = new URL(String(value || ''))
-    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return false
-    return shell.openExternal(url.toString())
-  } catch {
-    return false
-  }
+  return openExternalUrl(value)
 })

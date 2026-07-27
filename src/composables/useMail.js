@@ -321,6 +321,7 @@ async function selectFolder(path) {
   state.selected = null
   goMail()
   await loadLocalMessages()
+  if (isTrashPath(state.folder)) await sync()
 }
 
 async function selectMessage(uid) {
