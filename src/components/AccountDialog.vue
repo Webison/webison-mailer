@@ -70,10 +70,10 @@ function submit() {
   <section :class="embedded ? 'embed-panel' : 'screen'">
     <div v-if="!embedded" class="screen-header">
       <div class="screen-header-left">
-        <button class="btn btn-ghost btn-sm" @click="emit('back')">Indietro</button>
+        <button type="button" class="btn btn-back" @click="emit('back')">← Indietro</button>
         <h2>{{ account ? 'Modifica account' : 'Nuovo account' }}</h2>
       </div>
-      <div class="row-actions">
+      <div class="screen-header-actions">
         <button v-if="account" class="btn btn-danger" @click="emit('delete', account.id)">Elimina</button>
         <button class="btn btn-primary" @click="submit">Salva</button>
       </div>

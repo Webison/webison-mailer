@@ -13,16 +13,18 @@ defineEmits(['back', 'send'])
   <section class="screen">
     <div class="screen-header">
       <div class="screen-header-left">
-        <button class="btn btn-ghost btn-sm" @click="$emit('back')">Indietro</button>
+        <button type="button" class="btn btn-back" @click="$emit('back')">← Indietro</button>
         <h2>Nuovo messaggio</h2>
       </div>
-      <button
-        class="btn btn-primary"
-        :disabled="loading || !model.to || !model.subject"
-        @click="$emit('send')"
-      >
-        {{ loading ? 'Invio…' : 'Invia' }}
-      </button>
+      <div class="screen-header-actions">
+        <button
+          class="btn btn-primary"
+          :disabled="loading || !model.to || !model.subject"
+          @click="$emit('send')"
+        >
+          {{ loading ? 'Invio…' : 'Invia' }}
+        </button>
+      </div>
     </div>
 
     <div class="screen-body fill">

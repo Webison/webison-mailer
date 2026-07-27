@@ -86,7 +86,7 @@ const notificationsEnabled = computed({
   <section class="screen">
     <div class="screen-header">
       <div class="screen-header-left">
-        <button class="btn btn-ghost btn-sm" @click="emit('back')">Indietro</button>
+        <button type="button" class="btn btn-back" @click="emit('back')">← Indietro</button>
         <h2>Impostazioni</h2>
       </div>
     </div>
