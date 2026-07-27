@@ -238,6 +238,9 @@ onBeforeUnmount(() => {
             <button class="menu-item" role="menuitem" @click="runMenu(() => openSettings('aspetto'))">
               Impostazioni
             </button>
+            <button class="menu-item" role="menuitem" @click="runMenu(() => openSettings('info'))">
+              Info
+            </button>
           </div>
         </div>
       </div>
@@ -332,6 +335,10 @@ onBeforeUnmount(() => {
               {{ folderLabel(f) }}
             </button>
           </div>
+        </div>
+
+        <div class="sidebar-footer" :title="appVersion ? `Versione ${appVersion}` : ''">
+          v{{ appVersion || '—' }}
         </div>
       </aside>
 

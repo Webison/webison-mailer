@@ -37,7 +37,7 @@ Semantic Versioning in `package.json` → `version`.
 - Workflow: `.github/workflows/release.yml`
 - Artifact: `Webison Mailer-Setup-<version>.exe`
 - Le app installate controllano gli aggiornamenti all’avvio e mostrano una notifica quando un update è scaricato.
-- Repo **privata**: in GitHub → Settings → Secrets and variables → Actions, impostare `UPDATE_CHECK_TOKEN` = PAT fine-grained con permesso **Contents: Read** sul repo. La CI lo inietta nel build così le app possono leggere le Release.
+- Repo pubblica: `electron-updater` legge le GitHub Releases senza token. Se tornasse privata, serve secret Actions `UPDATE_CHECK_TOKEN` (PAT Contents: Read).
 
 ## Dove mettere le mani
 - UI: `src/`
