@@ -78,16 +78,28 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          SETUP="release/Webison Mailer-Setup-${VERSION}.exe"
-          BLOCKMAP="release/Webison Mailer-Setup-${VERSION}.exe.blockmap"
+          SRC_SETUP="release/Webison Mailer-Setup-${VERSION}.exe"
+          SRC_BLOCKMAP="release/Webison Mailer-Setup-${VERSION}.exe.blockmap"
           YML="release/latest.yml"
-          test -f "$SETUP"
+          SETUP="release/Webison-Mailer-Setup-${VERSION}.exe"
+          BLOCKMAP="release/Webison-Mailer-Setup-${VERSION}.exe.blockmap"
+
+          test -f "$SRC_SETUP"
           test -f "$YML"
+          cp "$SRC_SETUP" "$SETUP"
+          if [ -f "$SRC_BLOCKMAP" ]; then
+            cp "$SRC_BLOCKMAP" "$BLOCKMAP"
+          fi
+
+          FILES=("$SETUP" "$YML")
+          if [ -f "$BLOCKMAP" ]; then
+            FILES+=("$BLOCKMAP")
+          fi
 
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
-            gh release upload "v${VERSION}" "$SETUP" "$YML" "$BLOCKMAP" --clobber
+            gh release upload "v${VERSION}" "${FILES[@]}" --clobber
           else
-            gh release create "v${VERSION}" "$SETUP" "$YML" "$BLOCKMAP" \
+            gh release create "v${VERSION}" "${FILES[@]}" \
               --title "Webison Mailer ${VERSION}" \
               --notes "Release automatica v${VERSION}" \
               --verify-tag
