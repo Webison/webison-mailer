@@ -67,6 +67,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Webison Mailer',
+    icon: path.join(__dirname, '..', 'build', 'icon.ico'),
     backgroundColor: t.bg,
     titleBarStyle: 'hidden',
     titleBarOverlay: {

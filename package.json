@@ -1,6 +1,6 @@
 {
   "name": "webison-mailer",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "private": true,
   "description": "Webison Mailer — client email locale multi-account",
   "author": "Webison",
@@ -49,6 +49,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "build/icon.ico",
       "package.json"
     ],
     "publish": [
@@ -60,6 +61,7 @@
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis"
       ],
