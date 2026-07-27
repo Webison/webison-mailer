@@ -45,6 +45,21 @@ jobs:
           fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
+      - name: Commit version and create tag
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: bump version to v${VERSION} [skip ci]"
+            git push origin HEAD:main
+          fi
+          if ! git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            git tag "v${VERSION}"
+            git push origin "v${VERSION}"
+          fi
+
       - name: Prepare private update auth
         shell: bash
         env:
@@ -54,20 +69,5 @@ jobs:
       - name: Build and publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # release pubblica (non draft)
           EP_DRAFT: "false"
         run: npm run release
-
-      - name: Tag and push version
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json
-          if ! git diff --staged --quiet; then
-            git commit -m "chore: release v${VERSION} [skip ci]"
-          fi
-          if ! git rev-parse "v${VERSION}" >/dev/null 2>&1; then
-            git tag "v${VERSION}"
-          fi
-          git push origin HEAD:main --tags
