@@ -20,6 +20,9 @@ const {
   selectFolder,
   selectMessage,
   setMessageSeen,
+  deleteMessage,
+  emptyTrash,
+  isTrashPath,
   markAllInboxRead,
   sync,
   openCompose,
@@ -55,7 +58,7 @@ const folderLabel = (f) => {
   if (f.path === LOCAL_SENT || f.specialUse === '\\Sent' || /sent|inviate/i.test(f.path)) return 'Inviate'
   if (f.specialUse === '\\Inbox' || f.path.toUpperCase() === 'INBOX') return 'Posta in arrivo'
   if (f.specialUse === '\\Drafts') return 'Bozze'
-  if (f.specialUse === '\\Trash') return 'Cestino'
+  if (f.specialUse === '\\Trash' || /trash|cestino/i.test(`${f.path || ''} ${f.name || ''}`)) return 'Cestino'
   if (f.specialUse === '\\Junk') return 'Spam'
   return f.name || f.path
 }
@@ -64,6 +67,8 @@ const isSentFolder = computed(() => {
   const f = state.folder
   return f === LOCAL_SENT || /sent|inviate/i.test(f)
 })
+
+const isTrashFolder = computed(() => isTrashPath(state.folder))
 
 const bodyHtml = computed(() => state.selected?.html || '')
 const bodyText = computed(() => state.selected?.text || '')
@@ -111,6 +116,13 @@ async function ctxSetSeen(seen) {
   closeCtxMenu()
   if (uid == null) return
   await setMessageSeen(seen, uid)
+}
+
+async function ctxDelete() {
+  const uid = ctxMenu.value?.uid
+  closeCtxMenu()
+  if (uid == null) return
+  await deleteMessage(uid)
 }
 
 function setUpdate(payload) {
@@ -346,6 +358,15 @@ onBeforeUnmount(() => {
         <div class="toolbar">
           <h2>{{ currentAccount?.email || 'Posta' }}</h2>
           <span class="spacer" />
+          <button
+            v-if="isTrashFolder"
+            type="button"
+            class="btn btn-danger btn-sm"
+            :disabled="!state.messages.length || state.loading"
+            @click="emptyTrash"
+          >
+            Svuota cestino
+          </button>
           <div class="seg filter-seg">
             <button
               type="button"
@@ -373,7 +394,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
           <span class="status">
-            {{ state.syncing ? 'Sync…' : `${state.messages.length}` }}
+            {{ state.syncing || state.loading ? '…' : `${state.messages.length}` }}
           </span>
         </div>
 
@@ -428,6 +449,13 @@ onBeforeUnmount(() => {
                 </button>
                 <button class="btn btn-ghost" @click="openCompose(true)">Rispondi</button>
                 <button class="btn btn-primary" @click="openCompose(true, true)">Rispondi a tutti</button>
+                <button
+                  class="btn btn-danger"
+                  :disabled="state.loading"
+                  @click="deleteMessage()"
+                >
+                  {{ isTrashFolder ? 'Elimina definitivamente' : 'Elimina' }}
+                </button>
               </div>
             </div>
             <div class="reader-meta">
@@ -471,6 +499,9 @@ onBeforeUnmount(() => {
         @click="ctxSetSeen(false)"
       >
         Segna come non letta
+      </button>
+      <button class="menu-item danger" @click="ctxDelete">
+        {{ isTrashFolder ? 'Elimina definitivamente' : 'Elimina' }}
       </button>
     </div>
 

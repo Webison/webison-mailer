@@ -10,6 +10,9 @@ async function withClient(account, fn) {
       user: account.username,
       pass: account.password,
     },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
     logger: false,
   })
 
@@ -23,6 +26,10 @@ async function withClient(account, fn) {
       client.close()
     }
   }
+}
+
+async function verify(account) {
+  return withClient(account, async () => true)
 }
 
 async function listFolders(account) {
@@ -224,4 +231,79 @@ async function markAllMessagesSeen(account, folder = 'INBOX', seen = true) {
   })
 }
 
-module.exports = { listFolders, fetchMessages, appendToSent, checkNewMessages, setMessageSeen, markAllMessagesSeen }
+async function resolveTrashPath(client) {
+  const boxes = await client.list()
+  const bySpecial = boxes.find((box) => box.specialUse === '\\Trash')
+  if (bySpecial) return bySpecial.path
+
+  const byName = boxes.find((box) => {
+    const name = (box.name || box.path || '').toLowerCase()
+    return (
+      name === 'trash' ||
+      name === 'cestino' ||
+      name === 'bin' ||
+      name === 'deleted' ||
+      name === 'deleted items' ||
+      name.includes('trash') ||
+      name.includes('cestino')
+    )
+  })
+  return byName?.path || null
+}
+
+function uidRange(uids) {
+  return uids.map(String).join(',')
+}
+
+async function deleteMessages(account, folder, uids, { permanent = false } = {}) {
+  const list = (Array.isArray(uids) ? uids : [uids]).filter((u) => u != null && !String(u).startsWith('local-'))
+  if (!list.length) return { trashed: false, permanent: false }
+
+  return withClient(account, async (client) => {
+    const trashPath = await resolveTrashPath(client)
+    const inTrash = Boolean(trashPath && trashPath === folder)
+    const doPermanent = Boolean(permanent) || inTrash || !trashPath
+
+    const lock = await client.getMailboxLock(folder)
+    try {
+      if (doPermanent) {
+        await client.messageDelete(uidRange(list), { uid: true })
+        return { trashed: false, permanent: true, trashPath }
+      }
+      await client.messageMove(uidRange(list), trashPath, { uid: true })
+      return { trashed: true, permanent: false, trashPath }
+    } finally {
+      lock.release()
+    }
+  })
+}
+
+async function emptyTrash(account) {
+  return withClient(account, async (client) => {
+    const trashPath = await resolveTrashPath(client)
+    if (!trashPath) throw new Error('Cartella Cestino non trovata sul server')
+
+    const lock = await client.getMailboxLock(trashPath)
+    try {
+      if (client.mailbox.exists) {
+        await client.messageDelete('1:*')
+      }
+      return trashPath
+    } finally {
+      lock.release()
+    }
+  })
+}
+
+module.exports = {
+  listFolders,
+  fetchMessages,
+  appendToSent,
+  checkNewMessages,
+  setMessageSeen,
+  markAllMessagesSeen,
+  deleteMessages,
+  emptyTrash,
+  resolveTrashPath,
+  verify,
+}

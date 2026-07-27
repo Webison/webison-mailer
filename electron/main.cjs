@@ -6,9 +6,39 @@ const imap = require('./mail/imap.cjs')
 const smtp = require('./mail/smtp.cjs')
 const watcher = require('./mail/watcher.cjs')
 const updater = require('./updater.cjs')
+const { asFriendlyError, mailErrorInfo, mailSuccessInfo } = require('./mail/errors.cjs')
+const { configError, normalizeAccountInput, validAccountId } = require('./mail/validation.cjs')
 
 const isDev = !app.isPackaged
 let mainWindow
+
+function handle(channel, handler) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      throw new Error('Richiesta IPC non autorizzata')
+    }
+    return handler(event, ...args)
+  })
+}
+
+function mailContext(service, account, phase) {
+  const prefix = service.toLowerCase()
+  return {
+    service,
+    host: account[`${prefix}Host`],
+    port: account[`${prefix}Port`],
+    secure: account[`${prefix}Secure`],
+    phase,
+  }
+}
+
+async function runMailOperation(context, operation) {
+  try {
+    return await operation()
+  } catch (err) {
+    throw asFriendlyError(err, context)
+  }
+}
 
 const THEME_UI = {
   light: { bg: '#f3f3f3', symbol: '#1a1a1a' },
@@ -48,8 +78,16 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
+  })
+
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  mainWindow.webContents.on('will-navigate', (event) => {
+    if (mainWindow.webContents.getURL()) event.preventDefault()
+  })
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false)
   })
 
   if (isDev) {
@@ -92,6 +130,13 @@ function publicAccount(account) {
   return rest
 }
 
+function getAccountOrThrow(accountId) {
+  const id = validAccountId(accountId)
+  const account = store.getAccount(id)
+  if (!account) throw new Error('Account non trovato')
+  return account
+}
+
 app.whenReady().then(() => {
   store.init(app.getPath('userData'))
   createWindow()
@@ -113,12 +158,12 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-ipcMain.handle('app:version', () => app.getVersion())
-ipcMain.handle('update:install', () => {
+handle('app:version', () => app.getVersion())
+handle('update:install', () => {
   updater.installUpdate()
   return true
 })
-ipcMain.handle('update:check', async () => {
+handle('update:check', async () => {
   try {
     const result = await updater.checkForUpdates()
     return {
@@ -130,63 +175,111 @@ ipcMain.handle('update:check', async () => {
   }
 })
 
-ipcMain.handle('accounts:list', () => store.listAccounts().map(publicAccount))
+handle('accounts:list', () => store.listAccounts().map(publicAccount))
 
-ipcMain.handle('accounts:save', (_e, input) => {
-  const existing = input.id ? store.getAccount(input.id) : null
+handle('accounts:save', (_e, input) => {
+  const valid = normalizeAccountInput(input)
+  const existing = valid.id ? store.getAccount(valid.id) : null
+  if (valid.id && !existing) throw configError('account da modificare non trovato')
   const account = {
-    id: input.id || randomUUID(),
-    name: input.name.trim(),
-    email: input.email.trim(),
-    imapHost: input.imapHost.trim(),
-    imapPort: Number(input.imapPort) || 993,
-    imapSecure: input.imapSecure !== false,
-    smtpHost: input.smtpHost.trim(),
-    smtpPort: Number(input.smtpPort) || 587,
-    smtpSecure: Boolean(input.smtpSecure),
-    leaveOnServer: input.leaveOnServer !== false,
-    signatureId: input.signatureId || null,
-    username: (input.username || input.email).trim(),
-    passwordEnc: input.password
-      ? encrypt(input.password)
+    ...valid,
+    id: valid.id || randomUUID(),
+    passwordEnc: valid.password
+      ? encrypt(valid.password)
       : existing?.passwordEnc || '',
   }
+  delete account.password
+  if (!account.passwordEnc) throw configError('Password è un campo obbligatorio')
   store.saveAccount(account)
   return publicAccount(account)
 })
 
-ipcMain.handle('accounts:delete', (_e, id) => {
-  store.deleteAccount(id)
+handle('accounts:delete', (_e, id) => {
+  const safeId = validAccountId(id)
+  if (!store.getAccount(safeId)) throw configError('account non trovato')
+  store.deleteAccount(safeId)
   return true
 })
 
-ipcMain.handle('mail:folders', async (_e, accountId) => {
-  const account = store.getAccount(accountId)
-  if (!account) throw new Error('Account non trovato')
-  return imap.listFolders(withPassword(account))
+handle('accounts:test', async (_e, input) => {
+  let valid
+  let full
+  try {
+    valid = normalizeAccountInput(input, { requireIdentity: false })
+    const existing = valid.id ? store.getAccount(valid.id) : null
+    if (valid.id && !existing) throw configError('account da verificare non trovato')
+    const password = valid.password || (existing ? decrypt(existing.passwordEnc) : '')
+    if (!password) throw configError('Password è un campo obbligatorio')
+    full = {
+      ...existing,
+      ...valid,
+      name: valid.name || existing?.name || valid.username,
+      email: valid.email || existing?.email || valid.username,
+      password,
+    }
+  } catch (err) {
+    const fallback = {
+      imapHost: input?.imapHost,
+      imapPort: input?.imapPort,
+      imapSecure: input?.imapSecure,
+      smtpHost: input?.smtpHost,
+      smtpPort: input?.smtpPort,
+      smtpSecure: input?.smtpSecure,
+    }
+    return {
+      imap: mailErrorInfo(err, mailContext('IMAP', fallback, 'validazione configurazione')),
+      smtp: mailErrorInfo(err, mailContext('SMTP', fallback, 'validazione configurazione')),
+    }
+  }
+
+  const test = async (service, operation) => {
+    const context = mailContext(service, full, 'connessione e autenticazione')
+    try {
+      await operation()
+      return mailSuccessInfo(context)
+    } catch (err) {
+      return mailErrorInfo(err, context)
+    }
+  }
+  const [imapResult, smtpResult] = await Promise.all([
+    test('IMAP', () => imap.verify(full)),
+    test('SMTP', () => smtp.verify(full)),
+  ])
+  return { imap: imapResult, smtp: smtpResult }
 })
 
-ipcMain.handle('mail:sync', async (_e, { accountId, folder, storeAs }) => {
-  const account = store.getAccount(accountId)
-  if (!account) throw new Error('Account non trovato')
+handle('mail:folders', async (_e, accountId) => {
+  const account = getAccountOrThrow(accountId)
+  return runMailOperation(
+    mailContext('IMAP', account, 'caricamento cartelle'),
+    () => imap.listFolders(withPassword(account)),
+  )
+})
+
+handle('mail:sync', async (_e, { accountId, folder, storeAs }) => {
+  const account = getAccountOrThrow(accountId)
   const folderPath = folder || 'INBOX'
-  const messages = await imap.fetchMessages(withPassword(account), folderPath)
+  const messages = await runMailOperation(
+    mailContext('IMAP', account, `sincronizzazione cartella ${folderPath}`),
+    () => imap.fetchMessages(withPassword(account), folderPath),
+  )
   const key = storeAs || folderPath
   store.saveMessages(accountId, key, messages)
   return store.listMessages(accountId, key)
 })
 
-ipcMain.handle('mail:list', (_e, { accountId, folder }) => {
+handle('mail:list', (_e, { accountId, folder }) => {
+  getAccountOrThrow(accountId)
   return store.listMessages(accountId, folder || 'INBOX')
 })
 
-ipcMain.handle('mail:get', (_e, { accountId, folder, uid }) => {
+handle('mail:get', (_e, { accountId, folder, uid }) => {
+  getAccountOrThrow(accountId)
   return store.getMessage(accountId, folder || 'INBOX', uid)
 })
 
-ipcMain.handle('mail:setSeen', async (_e, { accountId, folder, uid, seen }) => {
-  const account = store.getAccount(accountId)
-  if (!account) throw new Error('Account non trovato')
+handle('mail:setSeen', async (_e, { accountId, folder, uid, seen }) => {
+  const account = getAccountOrThrow(accountId)
   const folderPath = folder || 'INBOX'
   try {
     await imap.setMessageSeen(withPassword(account), folderPath, uid, Boolean(seen))
@@ -196,7 +289,35 @@ ipcMain.handle('mail:setSeen', async (_e, { accountId, folder, uid, seen }) => {
   return store.setMessageSeen(accountId, folderPath, uid, Boolean(seen))
 })
 
-ipcMain.handle('mail:markAllInboxRead', async () => {
+handle('mail:delete', async (_e, { accountId, folder, storeAs, uids, permanent }) => {
+  const account = getAccountOrThrow(accountId)
+  const list = (Array.isArray(uids) ? uids : [uids]).filter((u) => u != null)
+  if (!list.length) return store.listMessages(accountId, storeAs || folder || 'INBOX')
+
+  const storeKey = storeAs || folder || 'INBOX'
+  const remote = list.filter((u) => !String(u).startsWith('local-'))
+  if (remote.length && folder) {
+    await runMailOperation(
+      mailContext('IMAP', account, 'eliminazione messaggi'),
+      () => imap.deleteMessages(withPassword(account), folder, remote, {
+        permanent: Boolean(permanent),
+      }),
+    )
+  }
+  return store.removeMessages(accountId, storeKey, list)
+})
+
+handle('mail:emptyTrash', async (_e, { accountId }) => {
+  const account = getAccountOrThrow(accountId)
+  const trashPath = await runMailOperation(
+    mailContext('IMAP', account, 'svuotamento cestino'),
+    () => imap.emptyTrash(withPassword(account)),
+  )
+  store.clearMessages(accountId, trashPath)
+  return { trashPath }
+})
+
+handle('mail:markAllInboxRead', async () => {
   const accounts = store.listAccounts()
   for (const account of accounts) {
     try {
@@ -216,11 +337,13 @@ ipcMain.handle('mail:markAllInboxRead', async () => {
   return true
 })
 
-ipcMain.handle('mail:send', async (_e, { accountId, to, cc, subject, text, html, inReplyTo, references }) => {
-  const account = store.getAccount(accountId)
-  if (!account) throw new Error('Account non trovato')
+handle('mail:send', async (_e, { accountId, to, cc, subject, text, html, inReplyTo, references }) => {
+  const account = getAccountOrThrow(accountId)
   const full = withPassword(account)
-  const info = await smtp.send(full, { to, cc, subject, text, html, inReplyTo, references })
+  const info = await runMailOperation(
+    mailContext('SMTP', account, 'invio messaggio'),
+    () => smtp.send(full, { to, cc, subject, text, html, inReplyTo, references }),
+  )
 
   const localUid = `local-${Date.now()}`
   const sentMessage = {
@@ -254,22 +377,28 @@ ipcMain.handle('mail:send', async (_e, { accountId, to, cc, subject, text, html,
   return { messageId: info.messageId, accepted: info.accepted, sentFolder: 'Sent' }
 })
 
-ipcMain.handle('contacts:list', () => store.listContacts())
-ipcMain.handle('contacts:save', (_e, input) => store.saveContact(input))
-ipcMain.handle('contacts:delete', (_e, id) => store.deleteContact(id))
+handle('contacts:list', () => store.listContacts())
+handle('contacts:save', (_e, input) => store.saveContact(input))
+handle('contacts:delete', (_e, id) => store.deleteContact(id))
 
-ipcMain.handle('signatures:list', () => store.listSignatures())
-ipcMain.handle('signatures:save', (_e, input) => store.saveSignature(input))
-ipcMain.handle('signatures:delete', (_e, id) => store.deleteSignature(id))
+handle('signatures:list', () => store.listSignatures())
+handle('signatures:save', (_e, input) => store.saveSignature(input))
+handle('signatures:delete', (_e, id) => store.deleteSignature(id))
 
-ipcMain.handle('settings:get', () => store.getSettings())
-ipcMain.handle('settings:set', (_e, patch) => {
+handle('settings:get', () => store.getSettings())
+handle('settings:set', (_e, patch) => {
   const settings = store.saveSettings(patch)
   applyTitleBarTheme(settings.theme)
   watcher.restartMailWatcher()
   return settings
 })
 
-ipcMain.handle('shell:openExternal', (_e, url) => {
-  if (/^https?:\/\//i.test(url)) return shell.openExternal(url)
+handle('shell:openExternal', (_e, value) => {
+  try {
+    const url = new URL(String(value || ''))
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return false
+    return shell.openExternal(url.toString())
+  } catch {
+    return false
+  }
 })

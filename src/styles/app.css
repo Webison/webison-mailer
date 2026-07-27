@@ -58,13 +58,15 @@
   --accent-soft: #e8f3ff;
 }
 
-[data-theme="light"][data-accent="rosa"] {
+[data-theme="light"][data-accent="rosa"],
+[data-accent="rosa"] {
   --accent: #e73c7e;
   --accent-hover: #c92f68;
   --accent-soft: #fde8f0;
 }
 
-[data-theme="light"][data-accent="viola"] {
+[data-theme="light"][data-accent="viola"],
+[data-accent="viola"] {
   --accent: #4a2ed8;
   --accent-hover: #3d25b5;
   --accent-soft: #ece8fb;
@@ -235,6 +237,14 @@ select:focus {
 
 .menu-item:hover:not(:disabled) {
   background: var(--hover);
+}
+
+.menu-item.danger {
+  color: var(--danger);
+}
+
+.menu-item.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
 }
 
 .menu-item:disabled {
@@ -672,6 +682,28 @@ select:focus {
 }
 
 .status.error {
+  color: var(--danger);
+}
+
+.connection-result {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.connection-result.passed {
+  border-color: #2e9d5b;
+  color: #237b47;
+}
+
+.connection-result.failed {
+  border-color: var(--danger);
   color: var(--danger);
 }
 

@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
+const { validAccountId } = require('./validation.cjs')
 
 let root = ''
 
@@ -29,8 +30,16 @@ function notifyStatePath() {
 }
 
 function mailboxDir(accountId, folder) {
-  const safe = String(folder).replace(/[<>:"/\\|?*]/g, '_')
-  return path.join(root, 'mail', accountId, safe)
+  const id = validAccountId(accountId)
+  let safe = String(folder || 'INBOX').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+  if (safe === '.' || safe === '..') safe = `_${safe.replace(/\./g, 'dot')}`
+  const mailRoot = path.resolve(root, 'mail')
+  const target = path.resolve(mailRoot, id, safe)
+  const prefix = `${mailRoot}${path.sep}`.toLowerCase()
+  if (!target.toLowerCase().startsWith(prefix)) {
+    throw new Error('Percorso mailbox non valido')
+  }
+  return target
 }
 
 function messagesPath(accountId, folder) {
@@ -85,15 +94,16 @@ function saveAccount(account) {
 }
 
 function deleteAccount(id) {
+  const safeId = validAccountId(id)
   writeJson(
     accountsPath(),
-    listAccounts().filter((a) => a.id !== id),
+    listAccounts().filter((a) => a.id !== safeId),
   )
-  const dir = path.join(root, 'mail', id)
+  const dir = path.join(root, 'mail', safeId)
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true })
   const notify = getNotifyState()
-  if (notify[id]) {
-    delete notify[id]
+  if (notify[safeId]) {
+    delete notify[safeId]
     writeJson(notifyStatePath(), notify)
   }
 }
@@ -131,6 +141,13 @@ function clearMessages(accountId, folder) {
     // ignore
   }
   return true
+}
+
+function removeMessages(accountId, folder, uids) {
+  const set = new Set((Array.isArray(uids) ? uids : [uids]).map(String))
+  const next = listMessages(accountId, folder).filter((m) => !set.has(String(m.uid)))
+  writeJson(messagesPath(accountId, folder), next)
+  return next
 }
 
 function listContacts() {
@@ -216,7 +233,7 @@ function getSettings() {
 function saveSettings(patch) {
   const next = { ...getSettings(), ...patch }
   if (next.theme !== 'dark') next.theme = 'light'
-  const allowed = ['blu', 'azzurro', 'turchese', 'verde', 'oliva', 'ambra', 'arancio', 'rosso', 'ardesia']
+  const allowed = ['blu', 'rosa', 'viola']
   if (!allowed.includes(next.colorPreset)) next.colorPreset = 'blu'
   next.notificationsEnabled = next.notificationsEnabled !== false
   const interval = Number(next.pollIntervalSec)
@@ -254,6 +271,7 @@ module.exports = {
   getMessage,
   setMessageSeen,
   clearMessages,
+  removeMessages,
   listContacts,
   saveContact,
   deleteContact,

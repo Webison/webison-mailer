@@ -1,11 +1,13 @@
 const { Notification } = require('electron')
 const store = require('./store.cjs')
 const imap = require('./imap.cjs')
+const { mailErrorInfo } = require('./errors.cjs')
 
 let timer = null
 let running = false
 let decryptAccount = null
 let getMainWindow = null
+const lastDiagnostics = new Map()
 
 function truncate(text, max = 80) {
   const value = String(text || '').replace(/\s+/g, ' ').trim()
@@ -13,14 +15,14 @@ function truncate(text, max = 80) {
   return `${value.slice(0, max - 1)}…`
 }
 
-function notifyRenderer(accountId) {
+function notifyRenderer(payload) {
   const win = getMainWindow?.()
   if (win && !win.isDestroyed()) {
-    win.webContents.send('mail:new', { accountId })
+    win.webContents.send('mail:new', payload)
   }
 }
 
-function showNotification({ title, body, accountId }) {
+function showNotification({ title, body, accountId, folder = 'INBOX', uid }) {
   if (!Notification.isSupported()) return
 
   const notification = new Notification({
@@ -35,7 +37,7 @@ function showNotification({ title, body, accountId }) {
       if (win.isMinimized()) win.restore()
       win.show()
       win.focus()
-      notifyRenderer(accountId)
+      notifyRenderer({ accountId, folder, uid, open: true })
     }
   })
 
@@ -45,6 +47,7 @@ function showNotification({ title, body, accountId }) {
 async function pollAccount(account) {
   const full = decryptAccount(account)
   const messages = await imap.checkNewMessages(full, 'INBOX', 30)
+  lastDiagnostics.delete(account.id)
   const uids = messages.map((m) => m.uid)
   const prev = store.getAccountNotifyState(account.id)
 
@@ -65,10 +68,12 @@ async function pollAccount(account) {
 
   const title = account.name || account.email || 'Webison Mailer'
   if (fresh.length > 3) {
+    const latest = fresh[fresh.length - 1]
     showNotification({
       title,
       body: `${fresh.length} nuovi messaggi`,
       accountId: account.id,
+      uid: latest?.uid,
     })
   } else {
     for (const msg of fresh) {
@@ -76,11 +81,12 @@ async function pollAccount(account) {
         title,
         body: `${truncate(msg.from, 40)}\n${truncate(msg.subject, 70)}`,
         accountId: account.id,
+        uid: msg.uid,
       })
     }
   }
 
-  notifyRenderer(account.id)
+  notifyRenderer({ accountId: account.id, folder: 'INBOX', open: false })
 }
 
 async function tick() {
@@ -94,7 +100,14 @@ async function tick() {
     for (const account of accounts) {
       try {
         await pollAccount(account)
-      } catch {
+      } catch (err) {
+        lastDiagnostics.set(account.id, mailErrorInfo(err, {
+          service: 'IMAP',
+          host: account.imapHost,
+          port: account.imapPort,
+          secure: account.imapSecure,
+          phase: 'controllo nuovi messaggi',
+        }))
         // un account offline non deve fermare gli altri
       }
     }
@@ -138,4 +151,5 @@ module.exports = {
   stopMailWatcher,
   restartMailWatcher,
   tick,
+  getLastDiagnostics: () => Object.fromEntries(lastDiagnostics),
 }

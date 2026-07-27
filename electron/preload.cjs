@@ -4,12 +4,22 @@ contextBridge.exposeInMainWorld('webison', {
   listAccounts: () => ipcRenderer.invoke('accounts:list'),
   saveAccount: (input) => ipcRenderer.invoke('accounts:save', input),
   deleteAccount: (id) => ipcRenderer.invoke('accounts:delete', id),
+  testAccountConnection: (input) => ipcRenderer.invoke('accounts:test', input),
   listFolders: (accountId) => ipcRenderer.invoke('mail:folders', accountId),
   syncMail: (accountId, folder, storeAs) => ipcRenderer.invoke('mail:sync', { accountId, folder, storeAs }),
   listMessages: (accountId, folder) => ipcRenderer.invoke('mail:list', { accountId, folder }),
   getMessage: (accountId, folder, uid) => ipcRenderer.invoke('mail:get', { accountId, folder, uid }),
   setMessageSeen: (accountId, folder, uid, seen) =>
     ipcRenderer.invoke('mail:setSeen', { accountId, folder, uid, seen }),
+  deleteMessages: (accountId, folder, uids, opts = {}) =>
+    ipcRenderer.invoke('mail:delete', {
+      accountId,
+      folder,
+      uids,
+      storeAs: opts.storeAs,
+      permanent: opts.permanent,
+    }),
+  emptyTrash: (accountId) => ipcRenderer.invoke('mail:emptyTrash', { accountId }),
   markAllInboxRead: () => ipcRenderer.invoke('mail:markAllInboxRead'),
   sendMail: (payload) => ipcRenderer.invoke('mail:send', payload),
   listContacts: () => ipcRenderer.invoke('contacts:list'),

@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 const props = defineProps({
   account: { type: Object, default: null },
@@ -24,6 +24,18 @@ const form = reactive({
   leaveOnServer: true,
   signatureId: '',
 })
+const testing = ref(false)
+const testResults = reactive({ imap: null, smtp: null, general: '' })
+const canTest = computed(() =>
+  Boolean(
+    form.username &&
+    form.imapHost &&
+    form.imapPort &&
+    form.smtpHost &&
+    form.smtpPort &&
+    (props.account || form.password),
+  ),
+)
 
 watch(
   () => props.account,
@@ -43,6 +55,7 @@ watch(
       leaveOnServer: a?.leaveOnServer !== false,
       signatureId: a?.signatureId || '',
     })
+    Object.assign(testResults, { imap: null, smtp: null, general: '' })
   },
   { immediate: true },
 )
@@ -64,6 +77,26 @@ function submit() {
     signatureId: form.signatureId || null,
   })
 }
+
+async function testConnection() {
+  if (!canTest.value || testing.value) return
+  testing.value = true
+  Object.assign(testResults, { imap: null, smtp: null, general: '' })
+  try {
+    const result = await window.webison.testAccountConnection({
+      ...form,
+      signatureId: form.signatureId || null,
+    })
+    testResults.imap = result.imap
+    testResults.smtp = result.smtp
+  } catch (err) {
+    let message = err?.message || String(err || 'Verifica connessione fallita')
+    message = message.replace(/^Error invoking remote method '[^']+':\s*/i, '').replace(/^Error:\s*/i, '')
+    testResults.general = message
+  } finally {
+    testing.value = false
+  }
+}
 </script>
 
 <template>
@@ -75,6 +108,9 @@ function submit() {
       </div>
       <div class="screen-header-actions">
         <button v-if="account" class="btn btn-danger" @click="emit('delete', account.id)">Elimina</button>
+        <button class="btn btn-ghost" :disabled="!canTest || testing" @click="testConnection">
+          {{ testing ? 'Verifica…' : 'Verifica connessione' }}
+        </button>
         <button class="btn btn-primary" @click="submit">Salva</button>
       </div>
     </div>
@@ -83,6 +119,9 @@ function submit() {
       <h3 class="block-title" style="margin: 0">{{ account ? 'Modifica account' : 'Nuovo account' }}</h3>
       <span class="spacer" />
       <button v-if="account" class="btn btn-danger btn-sm" @click="emit('delete', account.id)">Elimina</button>
+      <button class="btn btn-ghost btn-sm" :disabled="!canTest || testing" @click="testConnection">
+        {{ testing ? 'Verifica…' : 'Verifica connessione' }}
+      </button>
       <button class="btn btn-primary btn-sm" @click="submit">Salva</button>
     </div>
 
@@ -161,6 +200,29 @@ function submit() {
             <input v-model="form.smtpSecure" type="checkbox" />
             SSL su 465 (con 587 lascia spento)
           </label>
+        </div>
+
+        <div v-if="testResults.imap || testResults.smtp || testResults.general" class="form-section">
+          <h3 class="block-title">Esito verifica</h3>
+          <p v-if="testResults.general" class="connection-result failed">
+            {{ testResults.general }}
+          </p>
+          <p
+            v-if="testResults.imap"
+            class="connection-result"
+            :class="testResults.imap.ok ? 'passed' : 'failed'"
+          >
+            <strong>IMAP · {{ testResults.imap.code }}</strong>
+            <span>{{ testResults.imap.message }}</span>
+          </p>
+          <p
+            v-if="testResults.smtp"
+            class="connection-result"
+            :class="testResults.smtp.ok ? 'passed' : 'failed'"
+          >
+            <strong>SMTP · {{ testResults.smtp.code }}</strong>
+            <span>{{ testResults.smtp.message }}</span>
+          </p>
         </div>
       </div>
     </div>

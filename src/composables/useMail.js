@@ -70,6 +70,21 @@ function isSentPath(path) {
   return path === LOCAL_SENT || /sent|inviate/i.test(String(path || ''))
 }
 
+function isTrashPath(path) {
+  const folder = state.folders.find((f) => f.path === path)
+  if (folder?.specialUse === '\\Trash') return true
+  return /trash|cestino|deleted items|\bbin\b/i.test(String(path || ''))
+}
+
+function currentStoreFolder() {
+  return isSentPath(state.folder) ? LOCAL_SENT : state.folder
+}
+
+function currentImapFolder() {
+  if (isSentPath(state.folder)) return imapSentPath()
+  return state.folder
+}
+
 const displayFolders = computed(() => {
   const others = state.folders.filter(
     (f) => f.specialUse !== '\\Sent' && !isSentPath(f.path),
@@ -340,6 +355,64 @@ async function setMessageSeen(seen, uid = null) {
   }
 }
 
+async function deleteMessage(uid = null) {
+  const targetUid = uid ?? state.selectedUid
+  if (!state.accountId || targetUid == null || state.loading) return
+
+  const storeFolder = currentStoreFolder()
+  const imapFolder = currentImapFolder()
+  const permanent = isTrashPath(state.folder) || String(targetUid).startsWith('local-')
+
+  if (permanent) {
+    const ok = window.confirm(
+      isTrashPath(state.folder)
+        ? 'Eliminare definitivamente questo messaggio dal cestino?'
+        : 'Eliminare definitivamente questo messaggio?',
+    )
+    if (!ok) return
+  }
+
+  state.loading = true
+  state.error = ''
+  try {
+    state.messages = await window.webison.deleteMessages(
+      state.accountId,
+      imapFolder || null,
+      [targetUid],
+      { storeAs: storeFolder, permanent: permanent || !imapFolder },
+    )
+    if (String(state.selectedUid) === String(targetUid)) {
+      state.selectedUid = null
+      state.selected = null
+    }
+  } catch (err) {
+    state.error = friendlyError(err)
+    await loadLocalMessages()
+  } finally {
+    state.loading = false
+  }
+}
+
+async function emptyTrash() {
+  if (!state.accountId || state.loading) return
+  if (!isTrashPath(state.folder)) return
+  const ok = window.confirm('Svuotare il cestino? I messaggi verranno eliminati definitivamente.')
+  if (!ok) return
+
+  state.loading = true
+  state.error = ''
+  try {
+    await window.webison.emptyTrash(state.accountId)
+    state.messages = []
+    state.selectedUid = null
+    state.selected = null
+  } catch (err) {
+    state.error = friendlyError(err)
+  } finally {
+    state.loading = false
+  }
+}
+
 function splitAddresses(value) {
   if (!value) return []
   const parts = []
@@ -498,20 +571,36 @@ async function deleteSignature(id) {
 }
 
 async function saveSettings(patch) {
+  if (patch?.theme != null || patch?.colorPreset != null) {
+    applyTheme(patch.theme ?? state.settings.theme, patch.colorPreset ?? state.settings.colorPreset)
+  }
   state.settings = await window.webison.setSettings(patch)
   applyTheme(state.settings.theme, state.settings.colorPreset)
 }
 
-async function handleMailNew({ accountId } = {}) {
-  goMail()
-  if (accountId) {
-    await selectAccount(accountId)
+async function handleMailNew({ accountId, folder = 'INBOX', uid = null, open = false } = {}) {
+  if (!open) {
+    const currentFolder = String(state.folder || '').toUpperCase()
+    if (accountId === state.accountId && currentFolder === String(folder).toUpperCase()) {
+      await sync()
+    }
+    return
   }
+
+  if (accountId) await selectAccount(accountId)
   const inbox = state.folders.find(
     (f) => f.specialUse === '\\Inbox' || f.path.toUpperCase() === 'INBOX',
   )
-  state.folder = inbox?.path || 'INBOX'
+  const targetFolder =
+    state.folders.find((f) => f.path === folder)?.path ||
+    inbox?.path ||
+    folder ||
+    'INBOX'
+  await selectFolder(targetFolder)
   await sync()
+  if (uid != null && state.messages.some((message) => String(message.uid) === String(uid))) {
+    await selectMessage(uid)
+  }
 }
 
 async function markAllInboxRead() {
@@ -558,6 +647,9 @@ export function useMail() {
     selectFolder,
     selectMessage,
     setMessageSeen,
+    deleteMessage,
+    emptyTrash,
+    isTrashPath,
     sync,
     openCompose,
     sendMail,
