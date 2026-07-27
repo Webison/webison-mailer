@@ -1,0 +1,31 @@
+---
+description: Versioning SemVer, release GitHub e auto-update Electron
+alwaysApply: true
+---
+
+# Versioning e release — Webison Mailer
+
+Repo: `Webison/webison-mailer`. Leggi anche `AGENTS.md`.
+
+## SemVer obbligatorio
+Ogni modifica a codice runtime richiede bump di `package.json`:
+
+- **patch** — fix / tweak UI
+- **minor** — feature nuova
+- **major** — breaking
+
+Comandi: `npm run version:patch` | `version:minor` | `version:major`.
+
+Includi la versione nel messaggio di commit (`feat: … (v1.2.0)`).
+
+## Release
+- Non creare tag a mano.
+- Push su `main` → `.github/workflows/release.yml` builda Windows, pubblica GitHub Release, tagga `vX.Y.Z`.
+- Commit CI di solo versione usano `[skip ci]`.
+
+## Auto-update
+- Non rimuovere `electron-updater` / `electron/updater.cjs`.
+- Non mettere token in git: solo secret `UPDATE_CHECK_TOKEN` in Actions.
+
+## Stile progetto
+DRY / KISS / YAGNI. UI e messaggi in italiano. Composition API Vue senza import inutili.

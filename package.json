@@ -1,0 +1,80 @@
+{
+  "name": "webison-mailer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Webison Mailer — client email locale multi-account",
+  "author": "Webison",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Webison/webison-mailer.git"
+  },
+  "homepage": "https://github.com/Webison/webison-mailer",
+  "bugs": {
+    "url": "https://github.com/Webison/webison-mailer/issues"
+  },
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "build": "vite build",
+    "start": "electron .",
+    "dist": "npm run build && electron-builder --win --publish never",
+    "release": "npm run build && electron-builder --win --publish always",
+    "version:patch": "npm version patch --no-git-tag-version",
+    "version:minor": "npm version minor --no-git-tag-version",
+    "version:major": "npm version major --no-git-tag-version"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "imapflow": "^1.0.191",
+    "mailparser": "^3.7.4",
+    "nodemailer": "^7.0.5",
+    "vue": "^3.5.18"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "concurrently": "^9.2.0",
+    "electron": "^37.2.4",
+    "electron-builder": "^26.15.3",
+    "vite": "^7.0.6",
+    "wait-on": "^8.0.4"
+  },
+  "build": {
+    "appId": "it.webison.mailer",
+    "productName": "Webison Mailer",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Webison",
+        "repo": "webison-mailer",
+        "releaseType": "release"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Webison Mailer"
+    }
+  },
+  "allowScripts": {
+    "electron@37.10.3": true,
+    "esbuild@0.28.1": true
+  }
+}
