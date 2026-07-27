@@ -1,11 +1,8 @@
 <script setup>
 import { onMounted, computed, ref, onBeforeUnmount } from 'vue'
 import { useMail } from './composables/useMail'
-import AccountDialog from './components/AccountDialog.vue'
 import ComposeDialog from './components/ComposeDialog.vue'
-import ContactsDialog from './components/ContactsDialog.vue'
-import SignaturesDialog from './components/SignaturesDialog.vue'
-import SettingsDialog from './components/SettingsDialog.vue'
+import SettingsShell from './components/SettingsShell.vue'
 
 const {
   state,
@@ -16,7 +13,8 @@ const {
   stripHtml,
   bootstrap,
   goMail,
-  openScreen,
+  openSettings,
+  setSettingsSection,
   setListFilter,
   selectAccount,
   selectFolder,
@@ -44,10 +42,10 @@ const menuRoot = ref(null)
 const ctxMenu = ref(null)
 const appVersion = ref('')
 const updateInfo = ref(null)
+const updateModalOpen = ref(false)
+const updateChecking = ref(false)
 let offMailNew = null
-let offUpdateAvailable = null
-let offUpdateProgress = null
-let offUpdateDownloaded = null
+const offUpdates = []
 
 function onGlobalContextMenu(e) {
   if (ctxMenu.value && !e.target.closest?.('.ctx-menu')) closeCtxMenu()
@@ -115,12 +113,33 @@ async function ctxSetSeen(seen) {
   await setMessageSeen(seen, uid)
 }
 
+function setUpdate(payload) {
+  updateInfo.value = { ...payload, dismissed: false }
+  if (payload.status === 'available' || payload.status === 'downloading' || payload.status === 'ready') {
+    updateModalOpen.value = true
+  }
+}
+
 async function installUpdateNow() {
   await window.webison.installUpdate()
 }
 
 function dismissUpdate() {
+  updateModalOpen.value = false
   if (updateInfo.value) updateInfo.value = { ...updateInfo.value, dismissed: true }
+}
+
+async function checkUpdateManual() {
+  updateChecking.value = true
+  try {
+    const res = await window.webison.checkForUpdates()
+    if (res && res.ok === false) {
+      setUpdate({ status: 'error', version: '', percent: 0, message: res.message || 'Controllo fallito' })
+      updateModalOpen.value = true
+    }
+  } finally {
+    updateChecking.value = false
+  }
 }
 
 onMounted(async () => {
@@ -138,34 +157,43 @@ onMounted(async () => {
     })
   }
   if (window.webison?.onUpdateAvailable) {
-    offUpdateAvailable = window.webison.onUpdateAvailable((payload) => {
-      updateInfo.value = {
-        status: 'available',
-        version: payload.version,
-        percent: 0,
-        dismissed: false,
-      }
-    })
+    offUpdates.push(window.webison.onUpdateAvailable((payload) => {
+      setUpdate({ status: 'available', version: payload.version, percent: 0 })
+    }))
   }
   if (window.webison?.onUpdateProgress) {
-    offUpdateProgress = window.webison.onUpdateProgress((payload) => {
-      updateInfo.value = {
+    offUpdates.push(window.webison.onUpdateProgress((payload) => {
+      setUpdate({
         status: 'downloading',
         version: updateInfo.value?.version || '',
         percent: Math.round(payload.percent || 0),
-        dismissed: false,
-      }
-    })
+      })
+    }))
   }
   if (window.webison?.onUpdateDownloaded) {
-    offUpdateDownloaded = window.webison.onUpdateDownloaded((payload) => {
-      updateInfo.value = {
-        status: 'ready',
-        version: payload.version,
-        percent: 100,
-        dismissed: false,
+    offUpdates.push(window.webison.onUpdateDownloaded((payload) => {
+      setUpdate({ status: 'ready', version: payload.version, percent: 100 })
+    }))
+  }
+  if (window.webison?.onUpdateNotAvailable) {
+    offUpdates.push(window.webison.onUpdateNotAvailable(() => {
+      updateChecking.value = false
+      if (state.screen === 'settings' && state.settingsSection === 'info') {
+        setUpdate({ status: 'none', version: appVersion.value, percent: 0 })
+        updateModalOpen.value = true
       }
-    })
+    }))
+  }
+  if (window.webison?.onUpdateError) {
+    offUpdates.push(window.webison.onUpdateError((payload) => {
+      setUpdate({
+        status: 'error',
+        version: '',
+        percent: 0,
+        message: payload.message || 'Errore aggiornamento',
+      })
+      updateModalOpen.value = true
+    }))
   }
 })
 
@@ -173,9 +201,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('contextmenu', onGlobalContextMenu)
   if (typeof offMailNew === 'function') offMailNew()
-  if (typeof offUpdateAvailable === 'function') offUpdateAvailable()
-  if (typeof offUpdateProgress === 'function') offUpdateProgress()
-  if (typeof offUpdateDownloaded === 'function') offUpdateDownloaded()
+  offUpdates.forEach((off) => typeof off === 'function' && off())
 })
 </script>
 
@@ -208,25 +234,8 @@ onBeforeUnmount(() => {
             >
               Nuovo messaggio
             </button>
-            <button class="menu-item" role="menuitem" @click="runMenu(() => openAccountDialog(null))">
-              Aggiungi account
-            </button>
-            <button
-              class="menu-item"
-              role="menuitem"
-              :disabled="!state.accountId"
-              @click="runMenu(() => openAccountDialog(currentAccount))"
-            >
-              Modifica account
-            </button>
             <div class="menu-sep" />
-            <button class="menu-item" role="menuitem" @click="runMenu(() => openScreen('contacts'))">
-              Rubrica
-            </button>
-            <button class="menu-item" role="menuitem" @click="runMenu(() => openScreen('signatures'))">
-              Firme
-            </button>
-            <button class="menu-item" role="menuitem" @click="runMenu(() => openScreen('settings'))">
+            <button class="menu-item" role="menuitem" @click="runMenu(() => openSettings('aspetto'))">
               Impostazioni
             </button>
           </div>
@@ -244,39 +253,31 @@ onBeforeUnmount(() => {
       @send="sendMail"
     />
 
-    <AccountDialog
-      v-else-if="state.screen === 'account'"
-      :account="state.editingAccount"
-      :signatures="state.signatures"
-      @back="goMail"
-      @save="saveAccount"
-      @delete="deleteAccount"
-    />
-
-    <ContactsDialog
-      v-else-if="state.screen === 'contacts'"
-      :contacts="state.contacts"
-      @back="goMail"
-      @save="saveContact"
-      @delete="deleteContact"
-    />
-
-    <SignaturesDialog
-      v-else-if="state.screen === 'signatures'"
-      :signatures="state.signatures"
-      :accounts="state.accounts"
-      @back="goMail"
-      @save="saveSignature"
-      @delete="deleteSignature"
-    />
-
-    <SettingsDialog
+    <SettingsShell
       v-else-if="state.screen === 'settings'"
+      :section="state.settingsSection"
       :settings="state.settings"
+      :accounts="state.accounts"
+      :contacts="state.contacts"
+      :signatures="state.signatures"
+      :editing-account="state.editingAccount"
+      :account-editor="state.accountEditor"
       :app-version="appVersion"
+      :update-checking="updateChecking"
       @back="goMail"
-      @save="saveSettings"
-      @markAllInboxRead="markAllInboxRead"
+      @section="setSettingsSection"
+      @save-settings="saveSettings"
+      @mark-all-inbox-read="markAllInboxRead"
+      @save-account="saveAccount"
+      @delete-account="deleteAccount"
+      @new-account="openSettings('account', null)"
+      @edit-account="(a) => openSettings('account', a)"
+      @close-account-editor="setSettingsSection('account')"
+      @save-contact="saveContact"
+      @delete-contact="deleteContact"
+      @save-signature="saveSignature"
+      @delete-signature="deleteSignature"
+      @check-update="checkUpdateManual"
     />
 
     <div v-else class="layout">
@@ -482,7 +483,49 @@ onBeforeUnmount(() => {
     </div>
 
     <div
-      v-if="updateInfo && !updateInfo.dismissed"
+      v-if="updateModalOpen && updateInfo"
+      class="overlay"
+      @click.self="dismissUpdate"
+    >
+      <div class="dialog" role="dialog" aria-labelledby="update-title">
+        <div class="dialog-header">
+          <h3 id="update-title">Aggiornamento</h3>
+          <button class="btn btn-ghost btn-sm" @click="dismissUpdate">Chiudi</button>
+        </div>
+        <div class="dialog-body">
+          <p v-if="updateInfo.status === 'ready'" class="error-text">
+            La versione {{ updateInfo.version }} è stata scaricata. Riavvia per installarla.
+          </p>
+          <p v-else-if="updateInfo.status === 'downloading'" class="error-text">
+            Download della versione {{ updateInfo.version || '' }} in corso… {{ updateInfo.percent }}%
+          </p>
+          <p v-else-if="updateInfo.status === 'available'" class="error-text">
+            È disponibile la versione {{ updateInfo.version }}. Download in corso…
+          </p>
+          <p v-else-if="updateInfo.status === 'none'" class="error-text">
+            Sei già aggiornato alla versione {{ updateInfo.version || appVersion }}.
+          </p>
+          <p v-else-if="updateInfo.status === 'error'" class="error-text">
+            {{ updateInfo.message || 'Impossibile controllare gli aggiornamenti.' }}
+          </p>
+        </div>
+        <div class="dialog-footer">
+          <button
+            v-if="updateInfo.status === 'ready'"
+            class="btn btn-primary"
+            @click="installUpdateNow"
+          >
+            Riavvia ora
+          </button>
+          <button class="btn btn-ghost" @click="dismissUpdate">
+            {{ updateInfo.status === 'ready' ? 'Più tardi' : 'OK' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-else-if="updateInfo && !updateInfo.dismissed && (updateInfo.status === 'ready' || updateInfo.status === 'downloading')"
       class="update-toast"
       role="status"
     >
@@ -490,14 +533,9 @@ onBeforeUnmount(() => {
         <strong v-if="updateInfo.status === 'ready'">
           Aggiornamento {{ updateInfo.version }} pronto
         </strong>
-        <strong v-else-if="updateInfo.status === 'downloading'">
-          Scarico aggiornamento… {{ updateInfo.percent }}%
-        </strong>
         <strong v-else>
-          Nuovo aggiornamento {{ updateInfo.version }}
+          Scarico… {{ updateInfo.percent }}%
         </strong>
-        <span v-if="updateInfo.status === 'ready'">Riavvia per installarlo.</span>
-        <span v-else-if="updateInfo.status === 'available'">Download in corso…</span>
       </div>
       <div class="update-toast-actions">
         <button
@@ -505,9 +543,9 @@ onBeforeUnmount(() => {
           class="btn btn-primary btn-sm"
           @click="installUpdateNow"
         >
-          Riavvia ora
+          Riavvia
         </button>
-        <button class="btn btn-ghost btn-sm" @click="dismissUpdate">Più tardi</button>
+        <button class="btn btn-ghost btn-sm" @click="dismissUpdate">Nascondi</button>
       </div>
     </div>
   </div>

@@ -65,7 +65,11 @@ jobs:
         shell: bash
         env:
           UPDATE_CHECK_TOKEN: ${{ secrets.UPDATE_CHECK_TOKEN }}
-        run: node scripts/prepare-update-auth.cjs
+        run: |
+          if [ -z "${UPDATE_CHECK_TOKEN}" ]; then
+            echo "::warning::UPDATE_CHECK_TOKEN assente: ok se la repo è pubblica. Per repo privata serve un PAT Contents:Read."
+          fi
+          node scripts/prepare-update-auth.cjs
 
       - name: Build Windows installer
         env:

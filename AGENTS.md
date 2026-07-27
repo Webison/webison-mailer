@@ -8,7 +8,7 @@ Istruzioni per agenti AI (Cursor, Codex, Claude, ecc.) su questo repository.
 - Dati locali: `%APPDATA%/webison-mailer/`
 - Packaging: electron-builder (Windows NSIS)
 - Auto-update: electron-updater → GitHub Releases (`Webison/webison-mailer`)
-- Repo: https://github.com/Webison/webison-mailer (privata)
+- Repo: https://github.com/Webison/webison-mailer (pubblica — auto-update senza token)
 
 ## Principi
 - DRY, KISS, YAGNI

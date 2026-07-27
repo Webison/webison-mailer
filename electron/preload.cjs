@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('webison', {
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   getAppVersion: () => ipcRenderer.invoke('app:version'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
   onMailNew: (callback) => {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('mail:new', listener)
@@ -42,5 +43,15 @@ contextBridge.exposeInMainWorld('webison', {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('update:downloaded', listener)
     return () => ipcRenderer.removeListener('update:downloaded', listener)
+  },
+  onUpdateNotAvailable: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('update:not-available', listener)
+    return () => ipcRenderer.removeListener('update:not-available', listener)
+  },
+  onUpdateError: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('update:error', listener)
+    return () => ipcRenderer.removeListener('update:error', listener)
   },
 })

@@ -805,6 +805,84 @@ select:focus {
   gap: 6px;
 }
 
+.settings-shell {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  min-height: 0;
+  height: 100%;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-2);
+  overflow: auto;
+}
+
+.settings-nav-item {
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-nav-item:hover {
+  background: var(--hover);
+}
+
+.settings-nav-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.settings-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 24px;
+}
+
+.settings-embed {
+  height: 100%;
+  min-height: 0;
+}
+
+.embed-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.embed-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.embed-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.embed-body.fill {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.embed-body.fill .split-view {
+  flex: 1;
+  min-height: 0;
+}
+
 .empty {
   padding: var(--space-4);
   text-align: center;

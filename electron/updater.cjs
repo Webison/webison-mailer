@@ -10,10 +10,7 @@ function send(channel, payload) {
   }
 }
 
-function setupUpdater({ getMainWindow }) {
-  getWindow = getMainWindow
-  if (!app.isPackaged) return
-
+function configureFeed() {
   try {
     const auth = require('./update-auth.cjs')
     if (auth?.token) {
@@ -24,18 +21,41 @@ function setupUpdater({ getMainWindow }) {
         private: true,
         token: auth.token,
       })
+      return
     }
   } catch {
-    // auth opzionale
+    // ignore
   }
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'Webison',
+    repo: 'webison-mailer',
+    private: false,
+  })
+}
 
+function setupUpdater({ getMainWindow }) {
+  getWindow = getMainWindow
+  if (!app.isPackaged) return
+
+  configureFeed()
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('checking-for-update', () => {
+    send('update:checking', {})
+  })
 
   autoUpdater.on('update-available', (info) => {
     send('update:available', {
       version: info.version,
       releaseNotes: info.releaseNotes || '',
+    })
+  })
+
+  autoUpdater.on('update-not-available', (info) => {
+    send('update:not-available', {
+      version: info?.version || app.getVersion(),
     })
   })
 
@@ -58,13 +78,21 @@ function setupUpdater({ getMainWindow }) {
     send('update:error', { message: err?.message || String(err) })
   })
 
+  // subito all'avvio
   setTimeout(() => {
-    autoUpdater.checkForUpdates().catch(() => {})
-  }, 4000)
+    checkForUpdates().catch(() => {})
+  }, 1500)
 
   setInterval(() => {
-    autoUpdater.checkForUpdates().catch(() => {})
+    checkForUpdates().catch(() => {})
   }, 1000 * 60 * 60 * 4)
+}
+
+function checkForUpdates() {
+  if (!app.isPackaged) {
+    return Promise.resolve(null)
+  }
+  return autoUpdater.checkForUpdates()
 }
 
 function installUpdate() {
@@ -73,5 +101,6 @@ function installUpdate() {
 
 module.exports = {
   setupUpdater,
+  checkForUpdates,
   installUpdate,
 }

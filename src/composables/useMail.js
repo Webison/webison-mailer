@@ -16,6 +16,8 @@ const state = reactive({
   syncing: false,
   error: '',
   editingAccount: null,
+  accountEditor: false,
+  settingsSection: 'aspetto',
   contacts: [],
   signatures: [],
   settings: { theme: 'light', colorPreset: 'blu', notificationsEnabled: true, pollIntervalSec: 60 },
@@ -195,6 +197,26 @@ function goMail() {
 function openScreen(name) {
   state.screen = name
   state.error = ''
+}
+
+function openSettings(section = 'aspetto', account) {
+  state.settingsSection = section || 'aspetto'
+  if (section === 'account' && arguments.length >= 2) {
+    state.editingAccount = account || null
+    state.accountEditor = true
+  } else {
+    state.editingAccount = null
+    state.accountEditor = false
+  }
+  openScreen('settings')
+}
+
+function setSettingsSection(section) {
+  state.settingsSection = section || 'aspetto'
+  if (section !== 'account') {
+    state.editingAccount = null
+    state.accountEditor = false
+  }
 }
 
 async function refreshAccounts() {
@@ -423,8 +445,13 @@ async function saveAccount(form) {
   const saved = await window.webison.saveAccount(form)
   await refreshAccounts()
   await selectAccount(saved.id)
-  goMail()
   state.editingAccount = null
+  state.accountEditor = false
+  if (state.screen === 'settings') {
+    state.settingsSection = 'account'
+  } else {
+    goMail()
+  }
 }
 
 async function deleteAccount(id) {
@@ -436,13 +463,17 @@ async function deleteAccount(id) {
     state.selected = null
     state.folders = []
   }
-  goMail()
   state.editingAccount = null
+  state.accountEditor = false
+  if (state.screen === 'settings') {
+    state.settingsSection = 'account'
+  } else {
+    goMail()
+  }
 }
 
 function openAccountDialog(account = null) {
-  state.editingAccount = account
-  openScreen('account')
+  openSettings('account', account)
 }
 
 async function saveContact(form) {
@@ -517,6 +548,8 @@ export function useMail() {
     bootstrap,
     goMail,
     openScreen,
+    openSettings,
+    setSettingsSection,
     setListFilter,
     refreshAccounts,
     refreshContacts,

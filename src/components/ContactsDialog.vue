@@ -3,6 +3,7 @@ import { reactive, watch } from 'vue'
 
 const props = defineProps({
   contacts: { type: Array, default: () => [] },
+  embedded: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['back', 'save', 'delete'])
@@ -52,15 +53,15 @@ function remove() {
 </script>
 
 <template>
-  <section class="screen">
-    <div class="screen-header">
+  <section :class="embedded ? 'embed-panel' : 'screen'">
+    <div v-if="!embedded" class="screen-header">
       <div class="screen-header-left">
         <button class="btn btn-ghost btn-sm" @click="emit('back')">Indietro</button>
         <h2>Rubrica</h2>
       </div>
     </div>
 
-    <div class="screen-body fill">
+    <div :class="embedded ? 'embed-body fill' : 'screen-body fill'">
       <div class="split-view">
         <aside class="side-pane">
           <div class="side-pane-head">

@@ -118,6 +118,17 @@ ipcMain.handle('update:install', () => {
   updater.installUpdate()
   return true
 })
+ipcMain.handle('update:check', async () => {
+  try {
+    const result = await updater.checkForUpdates()
+    return {
+      ok: true,
+      version: result?.updateInfo?.version || null,
+    }
+  } catch (err) {
+    return { ok: false, message: err?.message || String(err) }
+  }
+})
 
 ipcMain.handle('accounts:list', () => store.listAccounts().map(publicAccount))
 

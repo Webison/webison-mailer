@@ -4,6 +4,7 @@ import { reactive, watch } from 'vue'
 const props = defineProps({
   account: { type: Object, default: null },
   signatures: { type: Array, default: () => [] },
+  embedded: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['back', 'save', 'delete'])
@@ -66,8 +67,8 @@ function submit() {
 </script>
 
 <template>
-  <section class="screen">
-    <div class="screen-header">
+  <section :class="embedded ? 'embed-panel' : 'screen'">
+    <div v-if="!embedded" class="screen-header">
       <div class="screen-header-left">
         <button class="btn btn-ghost btn-sm" @click="emit('back')">Indietro</button>
         <h2>{{ account ? 'Modifica account' : 'Nuovo account' }}</h2>
@@ -77,8 +78,15 @@ function submit() {
         <button class="btn btn-primary" @click="submit">Salva</button>
       </div>
     </div>
+    <div v-else class="embed-toolbar">
+      <button class="btn btn-ghost btn-sm" @click="emit('back')">Elenco</button>
+      <h3 class="block-title" style="margin: 0">{{ account ? 'Modifica account' : 'Nuovo account' }}</h3>
+      <span class="spacer" />
+      <button v-if="account" class="btn btn-danger btn-sm" @click="emit('delete', account.id)">Elimina</button>
+      <button class="btn btn-primary btn-sm" @click="submit">Salva</button>
+    </div>
 
-    <div class="screen-body narrow">
+    <div :class="embedded ? 'embed-body' : 'screen-body narrow'">
       <div class="form-stack">
         <div class="form-section">
           <h3 class="block-title">Identità</h3>
