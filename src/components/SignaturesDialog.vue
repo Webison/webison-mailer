@@ -1,5 +1,6 @@
 <script setup>
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import { useResizableLayout } from '../composables/useResizableLayout'
 import { frameDocument } from '../utils/frameDocument.mjs'
 
 const props = defineProps({
@@ -17,6 +18,31 @@ const form = reactive({
   isHtml: false,
   isDefault: false,
 })
+const splitViewRef = ref(null)
+const htmlSplitRef = ref(null)
+const SPLITTER_SIZE = 10
+const MAIN_PANE_MIN = 320
+const HTML_PREVIEW_MIN = 260
+const {
+  isCompact: splitCompact,
+  createStoredSize: createSplitStoredSize,
+  startHorizontalResize: startSplitHorizontalResize,
+} = useResizableLayout('signatures-dialog', splitViewRef)
+const {
+  isCompact: htmlCompact,
+  createStoredSize: createHtmlStoredSize,
+  startHorizontalResize: startHtmlHorizontalResize,
+} = useResizableLayout('signatures-html', htmlSplitRef)
+const { size: sidePaneWidth, setSize: setSidePaneWidth } = createSplitStoredSize('list', {
+  defaultValue: 260,
+  min: 220,
+  max: ({ containerWidth }) => Math.max(220, containerWidth - MAIN_PANE_MIN - SPLITTER_SIZE),
+})
+const { size: htmlEditorWidth, setSize: setHtmlEditorWidth } = createHtmlStoredSize('editor', {
+  defaultValue: 440,
+  min: 260,
+  max: ({ containerWidth }) => Math.max(260, containerWidth - HTML_PREVIEW_MIN - SPLITTER_SIZE),
+})
 
 function accountsFor(sigId) {
   return props.accounts.filter((a) => a.signatureId === sigId)
@@ -29,6 +55,12 @@ const linkedLabel = computed(() => {
   return list.map((a) => a.email || a.name).join(', ')
 })
 const previewDocument = computed(() => frameDocument(form.body))
+const splitViewStyle = computed(() => ({
+  '--split-view-side-width': `${sidePaneWidth.value}px`,
+}))
+const htmlSplitStyle = computed(() => ({
+  '--html-split-editor-width': `${htmlEditorWidth.value}px`,
+}))
 
 function resetForm() {
   Object.assign(form, { id: null, name: '', body: '', isHtml: false, isDefault: false })
@@ -55,6 +87,24 @@ function remove() {
   emit('delete', form.id)
   resetForm()
 }
+
+function startSplitResize(event) {
+  startSplitHorizontalResize(event, {
+    getValue: () => sidePaneWidth.value,
+    setValue: setSidePaneWidth,
+    min: 220,
+    max: ({ containerWidth }) => Math.max(220, containerWidth - MAIN_PANE_MIN - SPLITTER_SIZE),
+  })
+}
+
+function startHtmlResize(event) {
+  startHtmlHorizontalResize(event, {
+    getValue: () => htmlEditorWidth.value,
+    setValue: setHtmlEditorWidth,
+    min: 260,
+    max: ({ containerWidth }) => Math.max(260, containerWidth - HTML_PREVIEW_MIN - SPLITTER_SIZE),
+  })
+}
 </script>
 
 <template>
@@ -67,7 +117,7 @@ function remove() {
     </div>
 
     <div :class="embedded ? 'embed-body fill' : 'screen-body fill'">
-      <div class="split-view">
+      <div ref="splitViewRef" class="split-view resizable-layout" :style="splitViewStyle">
         <aside class="side-pane">
           <div class="side-pane-head">
             <span class="pane-title">{{ signatures.length }} firme</span>
@@ -95,6 +145,14 @@ function remove() {
             <p v-if="!signatures.length" class="empty">Nessuna firma</p>
           </div>
         </aside>
+
+        <button
+          v-if="!splitCompact"
+          type="button"
+          class="splitter"
+          aria-label="Ridimensiona elenco firme"
+          @pointerdown="startSplitResize"
+        />
 
         <div class="main-pane">
           <div class="form-stack">
@@ -135,11 +193,23 @@ function remove() {
                 <label>Contenuto</label>
                 <textarea v-model="form.body" rows="9" placeholder="Cordiali saluti,&#10;Nome Cognome" />
               </div>
-              <div v-else class="html-split tall">
+              <div
+                v-else
+                ref="htmlSplitRef"
+                class="html-split tall resizable-layout"
+                :style="htmlSplitStyle"
+              >
                 <div class="field grow">
                   <label>HTML</label>
                   <textarea v-model="form.body" class="mono editor" placeholder="<p>Cordiali saluti</p>" />
                 </div>
+                <button
+                  v-if="!htmlCompact"
+                  type="button"
+                  class="splitter"
+                  aria-label="Ridimensiona editor HTML firma"
+                  @pointerdown="startHtmlResize"
+                />
                 <div class="field grow">
                   <label>Anteprima</label>
                   <iframe class="preview-frame" sandbox="" :srcdoc="previewDocument" title="Anteprima firma" />

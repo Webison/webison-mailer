@@ -1,5 +1,6 @@
 <script setup>
-import { reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { useResizableLayout } from '../composables/useResizableLayout'
 
 const props = defineProps({
   contacts: { type: Array, default: () => [] },
@@ -16,6 +17,23 @@ const form = reactive({
 })
 
 const editing = reactive({ active: false })
+const splitViewRef = ref(null)
+const SPLITTER_SIZE = 10
+const MAIN_PANE_MIN = 320
+const {
+  isCompact,
+  createStoredSize,
+  startHorizontalResize,
+} = useResizableLayout('contacts-dialog', splitViewRef)
+const { size: sidePaneWidth, setSize: setSidePaneWidth } = createStoredSize('list', {
+  defaultValue: 260,
+  min: 220,
+  max: ({ containerWidth }) => Math.max(220, containerWidth - MAIN_PANE_MIN - SPLITTER_SIZE),
+})
+
+const splitViewStyle = computed(() => ({
+  '--split-view-side-width': `${sidePaneWidth.value}px`,
+}))
 
 watch(
   () => props.contacts,
@@ -50,6 +68,15 @@ function remove() {
   emit('delete', form.id)
   resetForm()
 }
+
+function startSplitResize(event) {
+  startHorizontalResize(event, {
+    getValue: () => sidePaneWidth.value,
+    setValue: setSidePaneWidth,
+    min: 220,
+    max: ({ containerWidth }) => Math.max(220, containerWidth - MAIN_PANE_MIN - SPLITTER_SIZE),
+  })
+}
 </script>
 
 <template>
@@ -62,7 +89,7 @@ function remove() {
     </div>
 
     <div :class="embedded ? 'embed-body fill' : 'screen-body fill'">
-      <div class="split-view">
+      <div ref="splitViewRef" class="split-view resizable-layout" :style="splitViewStyle">
         <aside class="side-pane">
           <div class="side-pane-head">
             <span class="pane-title">{{ contacts.length }} contatti</span>
@@ -82,6 +109,14 @@ function remove() {
             <p v-if="!contacts.length" class="empty">Nessun contatto</p>
           </div>
         </aside>
+
+        <button
+          v-if="!isCompact"
+          type="button"
+          class="splitter"
+          aria-label="Ridimensiona elenco contatti"
+          @pointerdown="startSplitResize"
+        />
 
         <div class="main-pane">
           <div class="form-stack">

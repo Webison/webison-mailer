@@ -1,5 +1,6 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useResizableLayout } from '../composables/useResizableLayout'
 import { COLOR_PRESETS, normalizeColorPreset } from '../theme/presets'
 import AccountDialog from './AccountDialog.vue'
 import ContactsDialog from './ContactsDialog.vue'
@@ -49,6 +50,23 @@ const active = computed({
 })
 
 const showAccountForm = computed(() => props.accountEditor)
+const settingsShellRef = ref(null)
+const SETTINGS_SPLITTER_SIZE = 10
+const SETTINGS_PANEL_MIN = 420
+const {
+  isCompact: settingsCompact,
+  createStoredSize: createSettingsStoredSize,
+  startHorizontalResize: startSettingsHorizontalResize,
+} = useResizableLayout('settings-shell', settingsShellRef)
+const { size: settingsNavWidth, setSize: setSettingsNavWidth } = createSettingsStoredSize('nav', {
+  defaultValue: 200,
+  min: 180,
+  max: ({ containerWidth }) => Math.max(180, containerWidth - SETTINGS_PANEL_MIN - SETTINGS_SPLITTER_SIZE),
+})
+
+const settingsShellStyle = computed(() => ({
+  '--settings-nav-width': `${settingsNavWidth.value}px`,
+}))
 
 function openNewAccount() {
   emit('new-account')
@@ -64,6 +82,15 @@ function closeAccountForm() {
 
 function onSaveAccount(form) {
   emit('save-account', form)
+}
+
+function startSettingsResize(event) {
+  startSettingsHorizontalResize(event, {
+    getValue: () => settingsNavWidth.value,
+    setValue: setSettingsNavWidth,
+    min: 180,
+    max: ({ containerWidth }) => Math.max(180, containerWidth - SETTINGS_PANEL_MIN - SETTINGS_SPLITTER_SIZE),
+  })
 }
 
 const theme = computed({
@@ -92,7 +119,7 @@ const notificationsEnabled = computed({
     </div>
 
     <div class="screen-body fill">
-      <div class="settings-shell">
+      <div ref="settingsShellRef" class="settings-shell resizable-layout" :style="settingsShellStyle">
         <aside class="settings-nav">
           <button
             v-for="s in SECTIONS"
@@ -105,6 +132,14 @@ const notificationsEnabled = computed({
             {{ s.label }}
           </button>
         </aside>
+
+        <button
+          v-if="!settingsCompact"
+          type="button"
+          class="splitter"
+          aria-label="Ridimensiona navigazione impostazioni"
+          @pointerdown="startSettingsResize"
+        />
 
         <div class="settings-panel">
           <div v-if="active === 'aspetto'" class="form-stack">

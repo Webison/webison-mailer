@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, computed, ref, onBeforeUnmount } from 'vue'
 import { useMail } from './composables/useMail'
+import { useResizableLayout } from './composables/useResizableLayout'
 import ComposeDialog from './components/ComposeDialog.vue'
 import SettingsShell from './components/SettingsShell.vue'
 import { frameDocument } from './utils/frameDocument.mjs'
@@ -44,12 +45,73 @@ const {
 const menuOpen = ref(false)
 const menuRoot = ref(null)
 const ctxMenu = ref(null)
+const mailLayoutRef = ref(null)
 const appVersion = ref('')
 const updateInfo = ref(null)
 const updateModalOpen = ref(false)
 const updateChecking = ref(false)
 let offMailNew = null
 const offUpdates = []
+const MAIL_SPLITTER_SIZE = 10
+const MAIL_READER_MIN = 320
+let mailSidebarWidthRef = null
+let mailListWidthRef = null
+const {
+  isCompact: mailLayoutCompact,
+  createStoredSize: createMailStoredSize,
+  startHorizontalResize: startMailHorizontalResize,
+} = useResizableLayout('mail-layout', mailLayoutRef)
+const mailSidebarSize = createMailStoredSize('sidebar', {
+  defaultValue: 220,
+  min: 180,
+  max: ({ containerWidth }) => Math.max(
+    180,
+    containerWidth - (mailListWidthRef?.value ?? 340) - MAIL_READER_MIN - (MAIL_SPLITTER_SIZE * 2),
+  ),
+})
+const mailListSize = createMailStoredSize('list', {
+  defaultValue: 340,
+  min: 280,
+  max: ({ containerWidth }) => Math.max(
+    280,
+    containerWidth - (mailSidebarWidthRef?.value ?? 220) - MAIL_READER_MIN - (MAIL_SPLITTER_SIZE * 2),
+  ),
+})
+const mailSidebarWidth = mailSidebarSize.size
+const setMailSidebarWidth = mailSidebarSize.setSize
+const mailListWidth = mailListSize.size
+const setMailListWidth = mailListSize.setSize
+mailSidebarWidthRef = mailSidebarWidth
+mailListWidthRef = mailListWidth
+
+const mailLayoutStyle = computed(() => ({
+  '--layout-sidebar-width': `${mailSidebarWidth.value}px`,
+  '--layout-list-width': `${mailListWidth.value}px`,
+}))
+
+function startMailSidebarResize(event) {
+  startMailHorizontalResize(event, {
+    getValue: () => mailSidebarWidth.value,
+    setValue: setMailSidebarWidth,
+    min: 180,
+    max: ({ containerWidth }) => Math.max(
+      180,
+      containerWidth - mailListWidth.value - MAIL_READER_MIN - (MAIL_SPLITTER_SIZE * 2),
+    ),
+  })
+}
+
+function startMailListResize(event) {
+  startMailHorizontalResize(event, {
+    getValue: () => mailListWidth.value,
+    setValue: setMailListWidth,
+    min: 280,
+    max: ({ containerWidth }) => Math.max(
+      280,
+      containerWidth - mailSidebarWidth.value - MAIL_READER_MIN - (MAIL_SPLITTER_SIZE * 2),
+    ),
+  })
+}
 
 function onGlobalContextMenu(e) {
   if (ctxMenu.value && !e.target.closest?.('.ctx-menu')) closeCtxMenu()
@@ -297,7 +359,7 @@ onBeforeUnmount(() => {
       @check-update="checkUpdateManual"
     />
 
-    <div v-else class="layout">
+    <div v-else ref="mailLayoutRef" class="layout resizable-layout" :style="mailLayoutStyle">
       <aside class="panel sidebar">
         <div class="sidebar-top">
           <button class="btn btn-primary btn-block" @click="openCompose(false)" :disabled="!state.accountId">
@@ -356,7 +418,15 @@ onBeforeUnmount(() => {
         </div>
       </aside>
 
-      <section class="panel">
+      <button
+        v-if="!mailLayoutCompact"
+        type="button"
+        class="splitter"
+        aria-label="Ridimensiona barra laterale"
+        @pointerdown="startMailSidebarResize"
+      />
+
+      <section class="panel mail-list-panel">
         <div class="toolbar">
           <h2>{{ currentAccount?.email || 'Posta' }}</h2>
           <span class="spacer" />
@@ -437,7 +507,15 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section class="panel reader">
+      <button
+        v-if="!mailLayoutCompact"
+        type="button"
+        class="splitter"
+        aria-label="Ridimensiona lista messaggi"
+        @pointerdown="startMailListResize"
+      />
+
+      <section class="panel reader mail-reader-panel">
         <template v-if="state.selected">
           <div class="reader-header">
             <div class="reader-title-row">

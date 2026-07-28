@@ -260,7 +260,12 @@ select:focus {
 
 .layout {
   display: grid;
-  grid-template-columns: 220px minmax(280px, 340px) 1fr;
+  grid-template-columns:
+    var(--layout-sidebar-width, 220px)
+    var(--splitter-size, 10px)
+    var(--layout-list-width, 340px)
+    var(--splitter-size, 10px)
+    minmax(0, 1fr);
   min-height: 0;
   height: 100%;
 }
@@ -276,6 +281,46 @@ select:focus {
 
 .panel:last-child {
   border-right: none;
+}
+
+.resizable-layout {
+  --splitter-size: 10px;
+}
+
+.splitter {
+  width: var(--splitter-size, 10px);
+  min-width: var(--splitter-size, 10px);
+  padding: 0;
+  border: none;
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.splitter::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  transform: translate(-50%, -50%);
+  transition: background 0.12s ease;
+}
+
+.splitter:hover::before,
+.splitter:focus-visible::before {
+  background: var(--accent);
+}
+
+.splitter:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .sidebar {
@@ -796,7 +841,7 @@ select:focus {
 
 .settings-shell {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: var(--settings-nav-width, 200px) var(--splitter-size, 10px) minmax(0, 1fr);
   min-height: 0;
   height: 100%;
 }
@@ -1075,7 +1120,7 @@ select:focus {
 
 .split-view {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: var(--split-view-side-width, 260px) var(--splitter-size, 10px) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
 }
@@ -1242,7 +1287,7 @@ select:focus {
 
 .html-split {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: var(--html-split-editor-width, 1fr) var(--splitter-size, 10px) minmax(0, 1fr);
   gap: var(--space-3);
   flex: 1;
   min-height: 0;
@@ -1284,25 +1329,36 @@ select:focus {
     grid-row: 1 / -1;
   }
 
-  .layout > .panel:nth-child(2) {
+  .layout > .mail-list-panel {
     grid-column: 2;
     grid-row: 1;
     border-right: none;
     border-bottom: 1px solid var(--border);
   }
 
-  .layout > .reader {
+  .layout > .mail-reader-panel {
     display: flex;
     grid-column: 2;
     grid-row: 2;
   }
 
+  .splitter {
+    display: none;
+  }
+
   .split-view,
-  .html-split {
+  .html-split,
+  .settings-shell {
     grid-template-columns: 1fr;
   }
 
   .side-pane {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 220px;
+  }
+
+  .settings-nav {
     border-right: none;
     border-bottom: 1px solid var(--border);
     max-height: 220px;

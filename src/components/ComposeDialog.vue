@@ -1,5 +1,6 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useResizableLayout } from '../composables/useResizableLayout'
 import { frameDocument } from '../utils/frameDocument.mjs'
 
 const props = defineProps({
@@ -12,6 +13,32 @@ const props = defineProps({
 defineEmits(['back', 'send'])
 
 const previewDocument = computed(() => frameDocument(props.model.html))
+const htmlSplitRef = ref(null)
+const SPLITTER_SIZE = 10
+const PREVIEW_MIN = 260
+const {
+  isCompact,
+  createStoredSize,
+  startHorizontalResize,
+} = useResizableLayout('compose-html', htmlSplitRef)
+const { size: editorWidth, setSize: setEditorWidth } = createStoredSize('editor', {
+  defaultValue: 440,
+  min: 260,
+  max: ({ containerWidth }) => Math.max(260, containerWidth - PREVIEW_MIN - SPLITTER_SIZE),
+})
+
+const htmlSplitStyle = computed(() => ({
+  '--html-split-editor-width': `${editorWidth.value}px`,
+}))
+
+function startHtmlResize(event) {
+  startHorizontalResize(event, {
+    getValue: () => editorWidth.value,
+    setValue: setEditorWidth,
+    min: 260,
+    max: ({ containerWidth }) => Math.max(260, containerWidth - PREVIEW_MIN - SPLITTER_SIZE),
+  })
+}
 </script>
 
 <template>
@@ -83,11 +110,23 @@ const previewDocument = computed(() => frameDocument(props.model.html))
             class="editor"
             placeholder="Scrivi il messaggio…"
           />
-          <div v-else class="html-split">
+          <div
+            v-else
+            ref="htmlSplitRef"
+            class="html-split resizable-layout"
+            :style="htmlSplitStyle"
+          >
             <textarea
               v-model="model.html"
               class="editor mono"
               placeholder="<p>Ciao</p>"
+            />
+            <button
+              v-if="!isCompact"
+              type="button"
+              class="splitter"
+              aria-label="Ridimensiona editor HTML"
+              @pointerdown="startHtmlResize"
             />
             <iframe class="preview-frame" sandbox="" :srcdoc="previewDocument" title="Anteprima" />
           </div>
