@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, safeStorage, shell } = require('electron')
+const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
 const store = require('./mail/store.cjs')
@@ -6,6 +7,7 @@ const imap = require('./mail/imap.cjs')
 const smtp = require('./mail/smtp.cjs')
 const watcher = require('./mail/watcher.cjs')
 const updater = require('./updater.cjs')
+const { resolveStoreUserDataPath } = require('./user-data.cjs')
 const { asFriendlyError, mailErrorInfo, mailSuccessInfo } = require('./mail/errors.cjs')
 const { configError, normalizeAccountInput, validAccountId } = require('./mail/validation.cjs')
 const { safeExternalUrl } = require('./mail/links.cjs')
@@ -17,6 +19,10 @@ const WINDOWS_TOAST_ACTIVATOR = '{8D80E9F3-7F8C-4C7B-A2A6-3A7F46D8B8E1}'
 let mainWindow
 
 app.setName(APP_NAME)
+const renamedUserDataPath = app.getPath('userData')
+const canonicalUserDataPath = path.join(app.getPath('appData'), 'webison-mailer')
+fs.mkdirSync(canonicalUserDataPath, { recursive: true })
+app.setPath('userData', canonicalUserDataPath)
 if (process.platform === 'win32') {
   app.setAppUserModelId(WINDOWS_APP_ID)
   if (typeof app.setToastActivatorCLSID === 'function') {
@@ -169,7 +175,8 @@ function getAccountOrThrow(accountId) {
 }
 
 app.whenReady().then(() => {
-  store.init(app.getPath('userData'))
+  const storeUserDataPath = resolveStoreUserDataPath(canonicalUserDataPath, [renamedUserDataPath])
+  store.init(storeUserDataPath)
   createWindow()
   watcher.startMailWatcher({
     decrypt: withPassword,
