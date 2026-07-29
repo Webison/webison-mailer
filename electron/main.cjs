@@ -11,7 +11,18 @@ const { configError, normalizeAccountInput, validAccountId } = require('./mail/v
 const { safeExternalUrl } = require('./mail/links.cjs')
 
 const isDev = !app.isPackaged
+const APP_NAME = 'Webison Mailer'
+const WINDOWS_APP_ID = 'it.webison.mailer'
+const WINDOWS_TOAST_ACTIVATOR = '{8D80E9F3-7F8C-4C7B-A2A6-3A7F46D8B8E1}'
 let mainWindow
+
+app.setName(APP_NAME)
+if (process.platform === 'win32') {
+  app.setAppUserModelId(WINDOWS_APP_ID)
+  if (typeof app.setToastActivatorCLSID === 'function') {
+    app.setToastActivatorCLSID(WINDOWS_TOAST_ACTIVATOR)
+  }
+}
 
 function handle(channel, handler) {
   ipcMain.handle(channel, async (event, ...args) => {
@@ -74,7 +85,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Webison Mailer',
+    title: APP_NAME,
     icon: path.join(__dirname, '..', 'build', 'icon.ico'),
     backgroundColor: t.bg,
     titleBarStyle: 'hidden',

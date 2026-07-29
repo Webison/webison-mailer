@@ -2,6 +2,7 @@ const { Notification } = require('electron')
 const store = require('./store.cjs')
 const imap = require('./imap.cjs')
 const { mailErrorInfo } = require('./errors.cjs')
+const { sendMailNewWhenReady } = require('./notification-target.cjs')
 
 let timer = null
 let running = false
@@ -16,10 +17,7 @@ function truncate(text, max = 80) {
 }
 
 function notifyRenderer(payload) {
-  const win = getMainWindow?.()
-  if (win && !win.isDestroyed()) {
-    win.webContents.send('mail:new', payload)
-  }
+  sendMailNewWhenReady(getMainWindow?.(), payload)
 }
 
 function showNotification({ title, body, accountId, folder = 'INBOX', uid }) {
