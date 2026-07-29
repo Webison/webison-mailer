@@ -1248,54 +1248,44 @@ select:focus {
 .compose-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: 8px var(--space-4);
+  justify-content: flex-start;
+  gap: 2px;
+  min-height: 38px;
+  padding: 4px var(--space-4);
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
 }
 
 .compose-body {
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  padding: var(--space-3) var(--space-4);
-  gap: var(--space-2);
+  display: block;
+  padding: 0;
   overflow: auto;
-}
-
-.compose-body .editor,
-.compose-body .html-split,
-.compose-body .preview-frame {
-  flex: 1;
-  min-height: 0;
+  overflow-anchor: none;
+  background: var(--surface);
 }
 
 .editor {
   width: 100%;
-  min-height: 0;
-  height: 100%;
+  min-height: 240px;
   resize: none;
   font-family: var(--font);
 }
 
 .visual-editor {
-  flex: 1;
-  min-height: 180px;
-  height: auto;
-  overflow: auto;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  min-height: clamp(180px, 28vh, 280px);
+  padding: 20px 24px 28px;
+  border: none;
+  border-radius: 0;
   background: var(--surface);
   color: var(--text);
-  line-height: 1.5;
+  line-height: 1.55;
   outline: none;
+  overflow-wrap: anywhere;
 }
 
 .visual-editor:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .visual-editor:empty::before {
@@ -1305,42 +1295,85 @@ select:focus {
 }
 
 .format-btn {
-  min-width: 36px;
+  width: 30px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.format-btn:hover,
+.format-btn:focus-visible {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.format-btn-wide {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.format-separator {
+  width: 1px;
+  height: 18px;
+  margin: 0 5px;
+  background: var(--border-strong);
 }
 
 .reply-quote {
-  flex: 0 0 min(38%, 300px);
-  min-height: 160px;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  overflow-anchor: none;
 }
 
-.reply-quote-label {
+.reply-quote-toggle {
+  width: 100%;
+  min-height: 38px;
   display: flex;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: 7px 10px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 24px;
   border-bottom: 1px solid var(--border);
   color: var(--text-2);
+  background: var(--surface-2);
   font-size: 12px;
   font-weight: 600;
+  text-align: left;
 }
 
-.reply-quote-label span {
+.reply-quote-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.reply-quote-chevron {
+  display: inline-block;
+  color: var(--text-3);
+  font-size: 18px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 0.12s ease;
+}
+
+.reply-quote-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.reply-quote-action {
+  margin-left: auto;
   color: var(--text-3);
   font-weight: 400;
 }
 
 .reply-quote-frame {
-  flex: 1;
+  display: block;
   width: 100%;
-  min-height: 125px;
+  min-height: 120px;
   border: 0;
   background: #fff;
+  overflow: hidden;
 }
 
 .editor.mono,

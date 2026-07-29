@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { frameDocument } from '../utils/frameDocument.mjs'
 import { buildReplyHtml } from '../utils/reply.mjs'
 
@@ -13,13 +13,21 @@ const props = defineProps({
 defineEmits(['back', 'send'])
 
 const editorRef = ref(null)
+const quoteFrameRef = ref(null)
+const quoteExpanded = ref(true)
+const quoteHeight = ref(180)
+let quoteResizeObserver = null
+let quoteInitialized = false
 const quoteDocument = computed(() =>
   frameDocument(buildReplyHtml('', props.model.quoteIntro, props.model.quoteHtml)),
 )
 
-function syncEditor() {
+const composeTitle = computed(() => (props.model.isReply ? 'Rispondi' : 'Nuovo messaggio'))
+const quoteFrameStyle = computed(() => ({ height: `${quoteHeight.value}px` }))
+
+function syncEditor(force = false) {
   const editor = editorRef.value
-  if (!editor || document.activeElement === editor) return
+  if (!editor || (!force && document.activeElement === editor)) return
   const html = props.model.html || ''
   if (editor.innerHTML !== html) editor.innerHTML = html
 }
@@ -34,8 +42,58 @@ function format(command) {
   updateModel()
 }
 
-onMounted(() => nextTick(syncEditor))
+function focusEditorStart() {
+  const editor = editorRef.value
+  if (!editor) return
+  editor.focus()
+  const selection = window.getSelection()
+  const range = document.createRange()
+  range.selectNodeContents(editor)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function resizeQuoteFrame(resetToEditor = false) {
+  const frame = quoteFrameRef.value
+  const doc = frame?.contentDocument
+  if (!frame || !doc) return
+  const scroller = frame.closest('[data-compose-scroll]')
+  const previousScrollTop = resetToEditor ? 0 : (scroller?.scrollTop || 0)
+  const height = Math.max(
+    doc.documentElement?.scrollHeight || 0,
+    doc.body?.scrollHeight || 0,
+    120,
+  )
+  quoteHeight.value = height + 2
+  frame.style.height = `${quoteHeight.value}px`
+  requestAnimationFrame(() => {
+    if (scroller) scroller.scrollTop = previousScrollTop
+  })
+}
+
+function observeQuoteFrame() {
+  quoteResizeObserver?.disconnect()
+  quoteResizeObserver = null
+  resizeQuoteFrame(!quoteInitialized)
+  quoteInitialized = true
+  const body = quoteFrameRef.value?.contentDocument?.body
+  if (body && window.ResizeObserver) {
+    quoteResizeObserver = new ResizeObserver(() => resizeQuoteFrame(false))
+    quoteResizeObserver.observe(body)
+  }
+}
+
+function toggleQuote() {
+  quoteExpanded.value = !quoteExpanded.value
+}
+
+onMounted(() => nextTick(() => {
+  syncEditor(true)
+  focusEditorStart()
+}))
 watch(() => props.model.html, () => nextTick(syncEditor))
+onBeforeUnmount(() => quoteResizeObserver?.disconnect())
 </script>
 
 <template>
@@ -43,7 +101,7 @@ watch(() => props.model.html, () => nextTick(syncEditor))
     <div class="screen-header">
       <div class="screen-header-left">
         <button type="button" class="btn btn-back" @click="$emit('back')">← Indietro</button>
-        <h2>Nuovo messaggio</h2>
+        <h2>{{ composeTitle }}</h2>
       </div>
       <div class="screen-header-actions">
         <button
@@ -78,17 +136,15 @@ watch(() => props.model.html, () => nextTick(syncEditor))
             <input v-model="model.subject" placeholder="Oggetto del messaggio" />
           </div>
           <div class="compose-toolbar" aria-label="Formattazione messaggio">
-            <span class="status">Formattazione</span>
-            <div class="seg">
-              <button type="button" class="btn btn-ghost format-btn" title="Grassetto" @mousedown.prevent @click="format('bold')"><strong>G</strong></button>
-              <button type="button" class="btn btn-ghost format-btn" title="Corsivo" @mousedown.prevent @click="format('italic')"><em>C</em></button>
-              <button type="button" class="btn btn-ghost format-btn" title="Sottolineato" @mousedown.prevent @click="format('underline')"><u>S</u></button>
-              <button type="button" class="btn btn-ghost format-btn" title="Elenco puntato" @mousedown.prevent @click="format('insertUnorderedList')">• Elenco</button>
-            </div>
+            <button type="button" class="format-btn" title="Grassetto" aria-label="Grassetto" @mousedown.prevent @click="format('bold')"><strong>B</strong></button>
+            <button type="button" class="format-btn" title="Corsivo" aria-label="Corsivo" @mousedown.prevent @click="format('italic')"><em>I</em></button>
+            <button type="button" class="format-btn" title="Sottolineato" aria-label="Sottolineato" @mousedown.prevent @click="format('underline')"><u>U</u></button>
+            <span class="format-separator" aria-hidden="true" />
+            <button type="button" class="format-btn format-btn-wide" title="Elenco puntato" aria-label="Elenco puntato" @mousedown.prevent @click="format('insertUnorderedList')">☷</button>
           </div>
         </div>
 
-        <div class="compose-body">
+        <div class="compose-body" data-compose-scroll>
           <div
             ref="editorRef"
             class="editor visual-editor"
@@ -100,15 +156,26 @@ watch(() => props.model.html, () => nextTick(syncEditor))
             @blur="updateModel"
           />
           <div v-if="model.isReply" class="reply-quote">
-            <div class="reply-quote-label">
-              Conversazione precedente
-              <span>protetta da modifiche</span>
-            </div>
+            <button
+              type="button"
+              class="reply-quote-toggle"
+              :aria-expanded="quoteExpanded"
+              @click="toggleQuote"
+            >
+              <span class="reply-quote-chevron" :class="{ expanded: quoteExpanded }">›</span>
+              Messaggio originale
+              <span class="reply-quote-action">{{ quoteExpanded ? 'Nascondi' : 'Mostra' }}</span>
+            </button>
             <iframe
+              v-if="quoteExpanded"
               class="reply-quote-frame"
-              sandbox=""
+              ref="quoteFrameRef"
+              sandbox="allow-same-origin"
+              scrolling="no"
+              :style="quoteFrameStyle"
               :srcdoc="quoteDocument"
-              title="Conversazione precedente"
+              title="Messaggio originale"
+              @load="observeQuoteFrame"
             />
           </div>
           <p v-if="error" class="status error">{{ error }}</p>
