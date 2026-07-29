@@ -396,6 +396,7 @@ handle('mail:send', async (_e, { accountId, to, cc, subject, text, html, inReply
     html: html || '',
     messageId: info.messageId || null,
     inReplyTo: inReplyTo || null,
+    references: references || [],
   }
   store.saveMessages(accountId, 'Sent', [sentMessage])
 
@@ -408,6 +409,8 @@ handle('mail:send', async (_e, { accountId, to, cc, subject, text, html, inReply
       text,
       html,
       messageId: info.messageId,
+      inReplyTo,
+      references,
     })
   } catch {
     // l'invio è già riuscito; APPEND IMAP non deve farlo fallire

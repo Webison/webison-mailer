@@ -48,6 +48,24 @@ function addrList(value) {
   return value.value.map((a) => a.address || a.name).filter(Boolean).join(', ')
 }
 
+function normalizeReferences(value) {
+  const values = Array.isArray(value) ? value.flat(Infinity) : [value]
+  const references = []
+  const seen = new Set()
+  for (const item of values) {
+    const raw = String(item || '').trim()
+    if (!raw) continue
+    const matches = raw.match(/<[^<>\s]+>/g) || raw.split(/\s+/)
+    for (const match of matches) {
+      const reference = match.trim()
+      if (!reference || seen.has(reference)) continue
+      seen.add(reference)
+      references.push(reference)
+    }
+  }
+  return references
+}
+
 async function fetchMessages(account, folder = 'INBOX', limit = 50) {
   const leaveOnServer = account.leaveOnServer !== false
 
@@ -88,6 +106,7 @@ async function fetchMessages(account, folder = 'INBOX', limit = 50) {
           html: typeof parsed?.html === 'string' ? parsed.html : '',
           messageId: parsed?.messageId || envelope.messageId || null,
           inReplyTo: parsed?.inReplyTo || null,
+          references: normalizeReferences(parsed?.references),
         })
       }
 
@@ -103,7 +122,17 @@ async function fetchMessages(account, folder = 'INBOX', limit = 50) {
   })
 }
 
-async function appendToSent(account, { from, to, cc, subject, text, html, messageId }) {
+async function appendToSent(account, {
+  from,
+  to,
+  cc,
+  subject,
+  text,
+  html,
+  messageId,
+  inReplyTo,
+  references,
+}) {
   return withClient(account, async (client) => {
     const boxes = await client.list()
     let sentPath = null
@@ -119,6 +148,7 @@ async function appendToSent(account, { from, to, cc, subject, text, html, messag
     }
     if (!sentPath) return null
 
+    const referenceList = normalizeReferences(references)
     const headers = [
       `From: ${from}`,
       `To: ${to}`,
@@ -126,6 +156,8 @@ async function appendToSent(account, { from, to, cc, subject, text, html, messag
       `Subject: ${subject}`,
       `Date: ${new Date().toUTCString()}`,
       messageId ? `Message-ID: ${messageId}` : null,
+      inReplyTo ? `In-Reply-To: ${inReplyTo}` : null,
+      referenceList.length ? `References: ${referenceList.join(' ')}` : null,
       'MIME-Version: 1.0',
     ].filter((l) => l !== null)
 

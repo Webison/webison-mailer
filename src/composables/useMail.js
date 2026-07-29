@@ -1,5 +1,10 @@
 import { reactive, computed } from 'vue'
 import { normalizeColorPreset } from '../theme/presets'
+import {
+  buildReferenceChain,
+  buildReplyHtml,
+  buildReplyText,
+} from '../utils/reply.mjs'
 
 const LOCAL_SENT = 'Sent'
 
@@ -21,14 +26,18 @@ const state = reactive({
   contacts: [],
   signatures: [],
   settings: { theme: 'light', colorPreset: 'blu', notificationsEnabled: true, pollIntervalSec: 60 },
-  listFilter: 'unread',
+  listFilter: 'all',
   compose: {
     to: '',
     cc: '',
     subject: '',
     text: '',
     html: '',
-    useHtml: false,
+    useHtml: true,
+    isReply: false,
+    quoteIntro: '',
+    quoteText: '',
+    quoteHtml: '',
     inReplyTo: null,
     references: null,
   },
@@ -176,14 +185,35 @@ function stripHtml(html) {
   return String(html || '')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<li(?:\s[^>]*)?>/gi, '- ')
+    .replace(/<\/(?:p|div|li|tr|h[1-6])>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
 function textToHtml(text) {
   return `<div>${escapeHtml(text).replace(/\n/g, '<br>')}</div>`
+}
+
+function formatReplyDate(ts) {
+  if (!ts) return ''
+  return new Date(ts).toLocaleString('it-IT', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function signatureBlock(asHtml) {
@@ -455,22 +485,26 @@ function replyAllCc(selected, replyTo) {
 }
 
 function openCompose(reply = false, replyAll = false) {
-  const preferHtml = Boolean(accountSignature.value?.isHtml) || Boolean(state.selected?.html)
   if (reply && state.selected) {
     const from = state.selected.from || ''
-    const quoteText = `\n\n---\nIl ${formatDate(state.selected.date)}, ${from} ha scritto:\n${state.selected.text || stripHtml(state.selected.html || '')}`
-    const quoteHtml = `<br><br><hr><p>Il ${escapeHtml(formatDate(state.selected.date))}, ${escapeHtml(from)} ha scritto:</p><blockquote>${state.selected.html || textToHtml(state.selected.text || '')}</blockquote>`
+    const quoteText = state.selected.text || stripHtml(state.selected.html || '')
+    const quoteHtml = state.selected.html || textToHtml(state.selected.text || '')
+    const quoteIntro = `Il ${formatReplyDate(state.selected.date)}, ${from} ha scritto:`
     state.compose = {
       to: from,
       cc: replyAll ? replyAllCc(state.selected, from) : '',
       subject: state.selected.subject?.startsWith('Re:')
         ? state.selected.subject
         : `Re: ${state.selected.subject || ''}`,
-      text: withSignature(quoteText, { reply: true, asHtml: false }),
-      html: withSignature(quoteHtml, { reply: true, asHtml: true }),
-      useHtml: preferHtml,
+      text: withSignature('', { asHtml: false }),
+      html: withSignature('', { asHtml: true }),
+      useHtml: true,
+      isReply: true,
+      quoteIntro,
+      quoteText,
+      quoteHtml,
       inReplyTo: state.selected.messageId,
-      references: state.selected.messageId,
+      references: buildReferenceChain(state.selected.references, state.selected.messageId),
     }
   } else {
     state.compose = {
@@ -479,7 +513,11 @@ function openCompose(reply = false, replyAll = false) {
       subject: '',
       text: withSignature('', { asHtml: false }),
       html: withSignature('', { asHtml: true }),
-      useHtml: preferHtml,
+      useHtml: true,
+      isReply: false,
+      quoteIntro: '',
+      quoteText: '',
+      quoteHtml: '',
       inReplyTo: null,
       references: null,
     }
@@ -492,16 +530,20 @@ async function sendMail() {
   state.loading = true
   state.error = ''
   try {
-    const useHtml = state.compose.useHtml
-    const html = useHtml ? state.compose.html : ''
-    const text = useHtml ? stripHtml(html) : state.compose.text
+    const replyText = stripHtml(state.compose.html)
+    const html = state.compose.isReply
+      ? buildReplyHtml(state.compose.html, state.compose.quoteIntro, state.compose.quoteHtml)
+      : state.compose.html
+    const text = state.compose.isReply
+      ? buildReplyText(replyText, state.compose.quoteIntro, state.compose.quoteText)
+      : replyText
     await window.webison.sendMail({
       accountId: state.accountId,
       to: state.compose.to,
       cc: state.compose.cc,
       subject: state.compose.subject,
       text,
-      html: useHtml ? html : undefined,
+      html: html || undefined,
       inReplyTo: state.compose.inReplyTo,
       references: state.compose.references,
     })
@@ -619,7 +661,35 @@ async function bootstrap() {
   await refreshAccounts()
   await refreshContacts()
   await refreshSignatures()
-  if (state.accountId) await selectAccount(state.accountId)
+  if (state.accountId) {
+    await selectAccount(state.accountId)
+    await syncInboxesAtStartup()
+  }
+}
+
+async function syncInboxesAtStartup() {
+  if (!state.accounts.length || state.syncing) return
+  const activeAccountId = state.accountId
+  state.syncing = true
+  state.error = ''
+  try {
+    const results = await Promise.allSettled(
+      state.accounts.map((account) => window.webison.syncMail(account.id, 'INBOX')),
+    )
+    if (state.accountId !== activeAccountId) return
+
+    const activeIndex = state.accounts.findIndex((account) => account.id === activeAccountId)
+    const activeResult = results[activeIndex]
+    const currentFolder = String(state.folder || '').toUpperCase()
+    if (activeResult?.status === 'fulfilled' && currentFolder === 'INBOX') {
+      state.messages = activeResult.value
+    } else if (activeResult?.status === 'rejected') {
+      state.error = friendlyError(activeResult.reason)
+      await loadLocalMessages()
+    }
+  } finally {
+    state.syncing = false
+  }
 }
 
 export function useMail() {
