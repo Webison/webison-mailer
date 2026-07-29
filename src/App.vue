@@ -5,6 +5,7 @@ import { useResizableLayout } from './composables/useResizableLayout'
 import ComposeDialog from './components/ComposeDialog.vue'
 import SettingsShell from './components/SettingsShell.vue'
 import { frameDocument } from './utils/frameDocument.mjs'
+import appIcon from '../build/icon.png'
 
 const {
   state,
@@ -284,7 +285,10 @@ onBeforeUnmount(() => {
 <template>
   <div class="app">
     <header class="titlebar">
-      <div class="titlebar-brand">Webison Mailer</div>
+      <div class="titlebar-brand">
+        <img class="titlebar-brand-icon" :src="appIcon" alt="" aria-hidden="true" />
+        <span>Webison Mailer</span>
+      </div>
       <div class="titlebar-actions">
         <button class="btn btn-ghost" :disabled="!state.accountId || state.syncing" @click="sync">
           {{ state.syncing ? 'Sincronizzo…' : 'Aggiorna' }}
