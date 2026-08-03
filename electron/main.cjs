@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, safeStorage, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, safeStorage, shell, dialog } = require('electron')
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
 const store = require('./mail/store.cjs')
+const attachments = require('./mail/attachments.cjs')
 const imap = require('./mail/imap.cjs')
 const smtp = require('./mail/smtp.cjs')
 const watcher = require('./mail/watcher.cjs')
@@ -297,11 +298,14 @@ handle('mail:folders', async (_e, accountId) => {
 handle('mail:sync', async (_e, { accountId, folder, storeAs }) => {
   const account = getAccountOrThrow(accountId)
   const folderPath = folder || 'INBOX'
+  const key = storeAs || folderPath
   const messages = await runMailOperation(
     mailContext('IMAP', account, `sincronizzazione cartella ${folderPath}`),
-    () => imap.fetchMessages(withPassword(account), folderPath),
+    () => imap.fetchMessages(withPassword(account), folderPath, 50, {
+      accountId,
+      storeAs: key,
+    }),
   )
-  const key = storeAs || folderPath
   store.saveMessages(accountId, key, messages)
   return store.listMessages(accountId, key)
 })
@@ -313,7 +317,48 @@ handle('mail:list', (_e, { accountId, folder }) => {
 
 handle('mail:get', (_e, { accountId, folder, uid }) => {
   getAccountOrThrow(accountId)
-  return store.getMessage(accountId, folder || 'INBOX', uid)
+  const folderPath = folder || 'INBOX'
+  const message = store.getMessage(accountId, folderPath, uid)
+  return attachments.messageWithDisplayHtml(message, accountId, folderPath)
+})
+
+handle('mail:saveAttachment', async (_e, { accountId, folder, uid, attachmentId, filename }) => {
+  getAccountOrThrow(accountId)
+  const folderPath = folder || 'INBOX'
+  const message = store.getMessage(accountId, folderPath, uid)
+  const meta = (message?.attachments || []).find((item) => String(item.id) === String(attachmentId))
+  if (!meta?.stored) throw new Error('Allegato non disponibile')
+
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Salva allegato',
+    defaultPath: meta.filename || filename || 'allegato',
+  })
+  if (result.canceled || !result.filePath) return { ok: false, canceled: true }
+  attachments.copyPartTo(accountId, folderPath, uid, attachmentId, result.filePath)
+  return { ok: true, path: result.filePath }
+})
+
+handle('attachments:pick', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Allega file',
+    properties: ['openFile', 'multiSelections'],
+  })
+  if (result.canceled || !result.filePaths?.length) return []
+  const picked = []
+  for (const filePath of result.filePaths) {
+    try {
+      picked.push(attachments.addStagingFile(filePath))
+    } catch (err) {
+      throw new Error(err?.message || 'Impossibile allegare il file')
+    }
+  }
+  attachments.assertAttachmentLimits(picked.length)
+  return picked
+})
+
+handle('attachments:removeStaging', (_e, stagingId) => {
+  attachments.removeStaging(stagingId)
+  return true
 })
 
 handle('mail:setSeen', async (_e, { accountId, folder, uid, seen }) => {
@@ -353,7 +398,10 @@ handle('mail:delete', async (_e, { accountId, folder, storeAs, uids, permanent }
     )
     if (cached.moved.length < remote.length) {
       try {
-        const trashMessages = await imap.fetchMessages(withPassword(account), deleteResult.trashPath)
+        const trashMessages = await imap.fetchMessages(withPassword(account), deleteResult.trashPath, 50, {
+          accountId,
+          storeAs: deleteResult.trashPath,
+        })
         store.saveMessages(accountId, deleteResult.trashPath, trashMessages)
       } catch {
         // Il MOVE è già riuscito: il Cestino verrà sincronizzato quando viene aperto.
@@ -394,29 +442,92 @@ handle('mail:markAllInboxRead', async () => {
   return true
 })
 
-handle('mail:send', async (_e, { accountId, to, cc, subject, text, html, inReplyTo, references }) => {
+handle('mail:send', async (_e, {
+  accountId,
+  to,
+  cc,
+  subject,
+  text,
+  html,
+  inReplyTo,
+  references,
+  attachmentIds = [],
+}) => {
   const account = getAccountOrThrow(accountId)
   const full = withPassword(account)
+  const stagingIds = Array.isArray(attachmentIds) ? attachmentIds.map(String) : []
+  attachments.assertAttachmentLimits(stagingIds.length)
+
+  const fileAttachments = stagingIds.map((id) => {
+    const entry = attachments.readStagingContent(id)
+    return {
+      filename: entry.filename,
+      contentType: entry.contentType,
+      content: entry.content,
+      contentDisposition: 'attachment',
+    }
+  })
+
+  const { html: htmlWithCid, inline } = attachments.extractDataUrlImages(html || '')
+  const mailAttachments = [
+    ...fileAttachments,
+    ...inline.map((item) => ({
+      filename: item.filename,
+      contentType: item.contentType,
+      content: item.content,
+      cid: item.cid,
+      contentDisposition: 'inline',
+    })),
+  ]
+  attachments.assertAttachmentLimits(mailAttachments.length)
+
   const info = await runMailOperation(
     mailContext('SMTP', account, 'invio messaggio'),
-    () => smtp.send(full, { to, cc, subject, text, html, inReplyTo, references }),
+    () => smtp.send(full, {
+      to,
+      cc,
+      subject,
+      text,
+      html: htmlWithCid || undefined,
+      inReplyTo,
+      references,
+      attachments: mailAttachments,
+    }),
   )
 
   const localUid = `local-${Date.now()}`
+  const savedMeta = attachments.replaceMessageParts(
+    accountId,
+    'Sent',
+    localUid,
+    mailAttachments.map((item, index) => ({
+      id: `att-${index + 1}`,
+      filename: item.filename,
+      contentType: item.contentType,
+      contentId: item.cid || null,
+      disposition: item.contentDisposition || 'attachment',
+      content: item.content,
+      index,
+    })),
+  )
+
   const sentMessage = {
     uid: localUid,
     subject: subject || '(senza oggetto)',
     from: account.email,
     to: to || '',
+    cc: cc || '',
     date: Date.now(),
     seen: true,
     text: text || '',
-    html: html || '',
+    html: htmlWithCid || '',
     messageId: info.messageId || null,
     inReplyTo: inReplyTo || null,
     references: references || [],
+    attachments: savedMeta,
   }
   store.saveMessages(accountId, 'Sent', [sentMessage])
+  attachments.clearStaging(stagingIds)
 
   try {
     await imap.appendToSent(full, {
@@ -425,10 +536,11 @@ handle('mail:send', async (_e, { accountId, to, cc, subject, text, html, inReply
       cc,
       subject,
       text,
-      html,
+      html: htmlWithCid,
       messageId: info.messageId,
       inReplyTo,
       references,
+      attachments: mailAttachments,
     })
   } catch {
     // l'invio è già riuscito; APPEND IMAP non deve farlo fallire

@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld('webison', {
   emptyTrash: (accountId) => ipcRenderer.invoke('mail:emptyTrash', { accountId }),
   markAllInboxRead: () => ipcRenderer.invoke('mail:markAllInboxRead'),
   sendMail: (payload) => ipcRenderer.invoke('mail:send', payload),
+  saveAttachment: (accountId, folder, uid, attachmentId, filename) =>
+    ipcRenderer.invoke('mail:saveAttachment', { accountId, folder, uid, attachmentId, filename }),
+  pickAttachments: () => ipcRenderer.invoke('attachments:pick'),
+  removeStagingAttachment: (stagingId) => ipcRenderer.invoke('attachments:removeStaging', stagingId),
   listContacts: () => ipcRenderer.invoke('contacts:list'),
   saveContact: (input) => ipcRenderer.invoke('contacts:save', input),
   deleteContact: (id) => ipcRenderer.invoke('contacts:delete', id),

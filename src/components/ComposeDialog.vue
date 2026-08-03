@@ -10,7 +10,7 @@ const props = defineProps({
   error: String,
 })
 
-defineEmits(['back', 'send'])
+defineEmits(['back', 'send', 'pick-attachments', 'remove-attachment'])
 
 const editorRef = ref(null)
 const quoteFrameRef = ref(null)
@@ -24,6 +24,16 @@ const quoteDocument = computed(() =>
 
 const composeTitle = computed(() => (props.model.isReply ? 'Rispondi' : 'Nuovo messaggio'))
 const quoteFrameStyle = computed(() => ({ height: `${quoteHeight.value}px` }))
+const composeAttachments = computed(() =>
+  Array.isArray(props.model.attachments) ? props.model.attachments : [],
+)
+
+function formatSize(bytes) {
+  const size = Number(bytes) || 0
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
 
 function syncEditor(force = false) {
   const editor = editorRef.value
@@ -141,6 +151,35 @@ onBeforeUnmount(() => quoteResizeObserver?.disconnect())
             <button type="button" class="format-btn" title="Sottolineato" aria-label="Sottolineato" @mousedown.prevent @click="format('underline')"><u>U</u></button>
             <span class="format-separator" aria-hidden="true" />
             <button type="button" class="format-btn format-btn-wide" title="Elenco puntato" aria-label="Elenco puntato" @mousedown.prevent @click="format('insertUnorderedList')">☷</button>
+            <span class="format-separator" aria-hidden="true" />
+            <button
+              type="button"
+              class="format-btn format-btn-wide"
+              title="Allega file"
+              aria-label="Allega file"
+              :disabled="loading || composeAttachments.length >= 20"
+              @click="$emit('pick-attachments')"
+            >
+              Allega
+            </button>
+          </div>
+          <div v-if="composeAttachments.length" class="compose-attachments">
+            <div
+              v-for="att in composeAttachments"
+              :key="att.stagingId"
+              class="compose-attachment-chip"
+            >
+              <span class="compose-attachment-name">{{ att.filename }}</span>
+              <span class="compose-attachment-size">{{ formatSize(att.size) }}</span>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :disabled="loading"
+                @click="$emit('remove-attachment', att.stagingId)"
+              >
+                Rimuovi
+              </button>
+            </div>
           </div>
         </div>
 

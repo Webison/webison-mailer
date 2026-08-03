@@ -40,6 +40,7 @@ const state = reactive({
     quoteHtml: '',
     inReplyTo: null,
     references: null,
+    attachments: [],
   },
 })
 
@@ -235,6 +236,13 @@ function withSignature(body, { reply = false, asHtml = false } = {}) {
 }
 
 function goMail() {
+  const stagingIds = (state.compose.attachments || []).map((att) => att.stagingId).filter(Boolean)
+  if (stagingIds.length && window.webison?.removeStagingAttachment) {
+    stagingIds.forEach((id) => {
+      window.webison.removeStagingAttachment(id).catch(() => {})
+    })
+  }
+  state.compose.attachments = []
   state.screen = 'mail'
   state.error = ''
 }
@@ -505,6 +513,7 @@ function openCompose(reply = false, replyAll = false) {
       quoteHtml,
       inReplyTo: state.selected.messageId,
       references: buildReferenceChain(state.selected.references, state.selected.messageId),
+      attachments: [],
     }
   } else {
     state.compose = {
@@ -520,9 +529,73 @@ function openCompose(reply = false, replyAll = false) {
       quoteHtml: '',
       inReplyTo: null,
       references: null,
+      attachments: [],
     }
   }
   openScreen('compose')
+}
+
+async function pickComposeAttachments() {
+  try {
+    const picked = await window.webison.pickAttachments()
+    if (!picked?.length) return
+    const current = Array.isArray(state.compose.attachments) ? state.compose.attachments : []
+    const next = [...current]
+    for (const item of picked) {
+      if (next.length >= 20) break
+      if (next.some((att) => att.stagingId === item.stagingId)) continue
+      next.push(item)
+    }
+    state.compose.attachments = next
+  } catch (err) {
+    state.error = friendlyError(err)
+  }
+}
+
+async function removeComposeAttachment(stagingId) {
+  state.compose.attachments = (state.compose.attachments || []).filter(
+    (att) => att.stagingId !== stagingId,
+  )
+  try {
+    await window.webison.removeStagingAttachment(stagingId)
+  } catch {
+    // ignore
+  }
+}
+
+async function saveSelectedAttachment(attachment) {
+  if (!state.accountId || !state.selectedUid || !attachment?.id) return
+  try {
+    await window.webison.saveAttachment(
+      state.accountId,
+      currentStoreFolder(),
+      state.selectedUid,
+      attachment.id,
+      attachment.filename,
+    )
+  } catch (err) {
+    state.error = friendlyError(err)
+  }
+}
+
+function messageHasAttachments(message) {
+  const list = Array.isArray(message?.attachments) ? message.attachments : []
+  if (!list.length) return false
+  const html = String(message.html || '').toLowerCase()
+  return list.some((att) => {
+    if (att.disposition === 'attachment') return true
+    const cid = String(att.contentId || '').replace(/^<|>$/g, '').trim().toLowerCase()
+    if (!cid) return true
+    if (att.disposition === 'inline' && html.includes(`cid:${cid}`)) return false
+    return true
+  })
+}
+
+function formatAttachmentSize(bytes) {
+  const size = Number(bytes) || 0
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
 async function sendMail() {
@@ -546,7 +619,9 @@ async function sendMail() {
       html: html || undefined,
       inReplyTo: state.compose.inReplyTo,
       references: state.compose.references,
+      attachmentIds: (state.compose.attachments || []).map((att) => att.stagingId),
     })
+    state.compose.attachments = []
     goMail()
     state.folder = LOCAL_SENT
     await loadLocalMessages()
@@ -723,6 +798,11 @@ export function useMail() {
     isTrashPath,
     sync,
     openCompose,
+    pickComposeAttachments,
+    removeComposeAttachment,
+    saveSelectedAttachment,
+    messageHasAttachments,
+    formatAttachmentSize,
     sendMail,
     saveAccount,
     deleteAccount,

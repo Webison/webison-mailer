@@ -1,7 +1,7 @@
 {
   "name": "webison-mailer",
   "productName": "Webison Mailer",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "private": true,
   "description": "Webison Mailer — client email locale multi-account",
   "author": "Webison",

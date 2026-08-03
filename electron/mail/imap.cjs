@@ -1,5 +1,7 @@
 const { ImapFlow } = require('imapflow')
 const { simpleParser } = require('mailparser')
+const MailComposer = require('nodemailer/lib/mail-composer')
+const attachments = require('./attachments.cjs')
 
 async function withClient(account, fn) {
   const client = new ImapFlow({
@@ -66,8 +68,10 @@ function normalizeReferences(value) {
   return references
 }
 
-async function fetchMessages(account, folder = 'INBOX', limit = 50) {
+async function fetchMessages(account, folder = 'INBOX', limit = 50, options = {}) {
   const leaveOnServer = account.leaveOnServer !== false
+  const accountId = options.accountId || account.id
+  const storeFolder = options.storeAs || folder
 
   return withClient(account, async (client) => {
     const lock = await client.getMailboxLock(folder)
@@ -94,6 +98,35 @@ async function fetchMessages(account, folder = 'INBOX', limit = 50) {
 
         const envelope = msg.envelope || {}
         fetchedUids.push(msg.uid)
+
+        let attachmentMeta = []
+        if (accountId && parsed?.attachments?.length) {
+          try {
+            attachmentMeta = attachments.replaceMessageParts(
+              accountId,
+              storeFolder,
+              msg.uid,
+              parsed.attachments.map((part, index) => ({
+                id: `att-${index + 1}`,
+                filename: part.filename,
+                contentType: part.contentType,
+                contentId: part.contentId || part.cid,
+                disposition: part.contentDisposition || part.disposition,
+                content: part.content,
+                index,
+              })),
+            )
+          } catch {
+            attachmentMeta = []
+          }
+        } else if (accountId) {
+          try {
+            attachments.deleteForMessage(accountId, storeFolder, msg.uid)
+          } catch {
+            // ignore
+          }
+        }
+
         messages.push({
           uid: msg.uid,
           subject: parsed?.subject || envelope.subject || '(senza oggetto)',
@@ -107,6 +140,7 @@ async function fetchMessages(account, folder = 'INBOX', limit = 50) {
           messageId: parsed?.messageId || envelope.messageId || null,
           inReplyTo: parsed?.inReplyTo || null,
           references: normalizeReferences(parsed?.references),
+          attachments: attachmentMeta,
         })
       }
 
@@ -132,6 +166,7 @@ async function appendToSent(account, {
   messageId,
   inReplyTo,
   references,
+  attachments: mailAttachments = [],
 }) {
   return withClient(account, async (client) => {
     const boxes = await client.list()
@@ -149,49 +184,20 @@ async function appendToSent(account, {
     if (!sentPath) return null
 
     const referenceList = normalizeReferences(references)
-    const headers = [
-      `From: ${from}`,
-      `To: ${to}`,
-      cc ? `Cc: ${cc}` : null,
-      `Subject: ${subject}`,
-      `Date: ${new Date().toUTCString()}`,
-      messageId ? `Message-ID: ${messageId}` : null,
-      inReplyTo ? `In-Reply-To: ${inReplyTo}` : null,
-      referenceList.length ? `References: ${referenceList.join(' ')}` : null,
-      'MIME-Version: 1.0',
-    ].filter((l) => l !== null)
-
-    let body
-    if (html) {
-      const boundary = `webison_${Date.now()}`
-      body = [
-        ...headers,
-        `Content-Type: multipart/alternative; boundary="${boundary}"`,
-        '',
-        `--${boundary}`,
-        'Content-Type: text/plain; charset=utf-8',
-        'Content-Transfer-Encoding: 8bit',
-        '',
-        text || '',
-        `--${boundary}`,
-        'Content-Type: text/html; charset=utf-8',
-        'Content-Transfer-Encoding: 8bit',
-        '',
-        html,
-        `--${boundary}--`,
-        '',
-      ].join('\r\n')
-    } else {
-      body = [
-        ...headers,
-        'Content-Type: text/plain; charset=utf-8',
-        'Content-Transfer-Encoding: 8bit',
-        '',
-        text || '',
-      ].join('\r\n')
-    }
-
-    await client.append(sentPath, body, ['\\Seen'])
+    const composer = new MailComposer({
+      from,
+      to,
+      cc: cc || undefined,
+      subject,
+      text: text || '',
+      html: html || undefined,
+      messageId: messageId || undefined,
+      inReplyTo: inReplyTo || undefined,
+      references: referenceList.length ? referenceList : undefined,
+      attachments: Array.isArray(mailAttachments) ? mailAttachments : [],
+    })
+    const built = await composer.compile().build()
+    await client.append(sentPath, built, ['\\Seen'])
     return sentPath
   })
 }

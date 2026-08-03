@@ -31,7 +31,7 @@ async function verify(account) {
   }
 }
 
-async function send(account, { to, cc, subject, text, html, inReplyTo, references }) {
+async function send(account, { to, cc, subject, text, html, inReplyTo, references, attachments }) {
   const transporter = createTransport(account)
   try {
     return await transporter.sendMail({
@@ -43,6 +43,7 @@ async function send(account, { to, cc, subject, text, html, inReplyTo, reference
       html: html || undefined,
       inReplyTo: inReplyTo || undefined,
       references: references || undefined,
+      attachments: Array.isArray(attachments) ? attachments : undefined,
     })
   } finally {
     transporter.close()

@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
 const { validAccountId } = require('./validation.cjs')
+const attachments = require('./attachments.cjs')
 
 let root = ''
 
@@ -63,6 +64,7 @@ function init(userDataPath) {
   root = path.join(userDataPath, 'webison-data')
   ensureDir(root)
   ensureDir(path.join(root, 'mail'))
+  attachments.init(userDataPath)
   if (!fs.existsSync(accountsPath())) writeJson(accountsPath(), [])
   if (!fs.existsSync(contactsPath())) writeJson(contactsPath(), [])
   if (!fs.existsSync(signaturesPath())) writeJson(signaturesPath(), [])
@@ -140,13 +142,21 @@ function clearMessages(accountId, folder) {
   } catch {
     // ignore
   }
+  try {
+    attachments.clearFolderAttachments(accountId, folder)
+  } catch {
+    // ignore
+  }
   return true
 }
 
 function removeMessages(accountId, folder, uids) {
   const set = new Set((Array.isArray(uids) ? uids : [uids]).map(String))
-  const next = listMessages(accountId, folder).filter((m) => !set.has(String(m.uid)))
+  const list = listMessages(accountId, folder)
+  const removed = list.filter((m) => set.has(String(m.uid)))
+  const next = list.filter((m) => !set.has(String(m.uid)))
   writeJson(messagesPath(accountId, folder), next)
+  attachments.deleteForMessages(accountId, folder, removed.map((m) => m.uid))
   return next
 }
 
@@ -158,7 +168,19 @@ function moveMessages(accountId, sourceFolder, destinationFolder, uids, uidMap =
   const moved = selected
     .map((message) => {
       const destinationUid = uidMap?.[String(message.uid)]
-      return destinationUid == null ? null : { ...message, uid: destinationUid }
+      if (destinationUid == null) return null
+      try {
+        attachments.moveForMessage(
+          accountId,
+          sourceFolder,
+          destinationFolder,
+          message.uid,
+          destinationUid,
+        )
+      } catch {
+        // Il messaggio viene comunque spostato in cache.
+      }
+      return { ...message, uid: destinationUid }
     })
     .filter(Boolean)
 

@@ -29,6 +29,11 @@ const {
   markAllInboxRead,
   sync,
   openCompose,
+  pickComposeAttachments,
+  removeComposeAttachment,
+  saveSelectedAttachment,
+  messageHasAttachments,
+  formatAttachmentSize,
   sendMail,
   saveAccount,
   deleteAccount,
@@ -334,6 +339,8 @@ onBeforeUnmount(() => {
       :error="state.error"
       @back="goMail"
       @send="sendMail"
+      @pick-attachments="pickComposeAttachments"
+      @remove-attachment="removeComposeAttachment"
     />
 
     <SettingsShell
@@ -491,7 +498,10 @@ onBeforeUnmount(() => {
                 </div>
                 <span class="date">{{ formatDate(m.date) }}</span>
               </div>
-              <div class="subject">{{ m.subject }}</div>
+              <div class="subject">
+                <span v-if="messageHasAttachments(m)" class="attach-flag" title="Contiene allegati" aria-label="Contiene allegati">A</span>
+                {{ m.subject }}
+              </div>
               <div class="preview">{{ previewText(m) }}</div>
             </button>
           </template>
@@ -547,6 +557,34 @@ onBeforeUnmount(() => {
               <div><strong>A</strong> {{ state.selected.to }}</div>
               <div v-if="state.selected.cc"><strong>Cc</strong> {{ state.selected.cc }}</div>
               <div><strong>Data</strong> {{ new Date(state.selected.date).toLocaleString('it-IT') }}</div>
+            </div>
+            <div
+              v-if="(state.selected.attachments || []).some((a) => a.stored)"
+              class="attachment-bar"
+            >
+              <div class="attachment-bar-label">Allegati</div>
+              <div class="attachment-list">
+                <div
+                  v-for="att in (state.selected.attachments || []).filter((a) => a.stored)"
+                  :key="att.id"
+                  class="attachment-item"
+                >
+                  <div class="attachment-meta">
+                    <strong>{{ att.filename }}</strong>
+                    <span>
+                      {{ formatAttachmentSize(att.size) }}
+                      <template v-if="att.disposition === 'inline'"> · inline</template>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    @click="saveSelectedAttachment(att)"
+                  >
+                    Scarica
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
           <div class="reader-body">
