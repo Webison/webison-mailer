@@ -18,15 +18,46 @@ async function withClient(account, fn) {
     logger: false,
   })
 
-  await client.connect()
+  // ImapFlow può emettere errori asincroni sul client (ad esempio "Socket timeout")
+  // anche dopo che connect() è terminato. Un EventEmitter senza listener per
+  // "error" fa terminare il processo Electron con un'eccezione non gestita.
+  let clientError = null
+  let connectionErrorHandler = null
+  let connected = false
+  const rememberClientError = (err) => {
+    clientError = err
+  }
+  client.on('error', rememberClientError)
+
   try {
-    return await fn(client)
+    await client.connect()
+    connected = true
+    const operation = Promise.resolve().then(() => fn(client))
+    const connectionError = new Promise((_, reject) => {
+      if (clientError) {
+        reject(clientError)
+        return
+      }
+      connectionErrorHandler = reject
+      client.once('error', connectionErrorHandler)
+    })
+    return await Promise.race([operation, connectionError])
   } finally {
-    try {
-      await client.logout()
-    } catch {
+    if (connectionErrorHandler) {
+      client.removeListener('error', connectionErrorHandler)
+    }
+    if (connected) {
+      try {
+        await client.logout()
+      } catch {
+        client.close()
+      }
+    } else {
       client.close()
     }
+    // Mantieni un listener anche durante logout/close: il socket può emettere
+    // l’errore asincronamente proprio mentre la connessione viene terminata.
+    client.removeListener('error', rememberClientError)
   }
 }
 

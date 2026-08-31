@@ -5,6 +5,11 @@ Tutte le modifiche rilevanti a questo progetto sono documentate in questo file.
 Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 e il progetto aderisce al [Semantic Versioning](https://semver.org/lang/it/).
 
+## [1.6.2] - 2026-08-31
+
+### Fixed
+- Gestione degli errori asincroni IMAP, inclusi i timeout del socket, senza chiusura inattesa dell’app.
+
 ## [1.6.0] - 2026-08-03
 
 ### Added
