@@ -5,6 +5,11 @@ Tutte le modifiche rilevanti a questo progetto sono documentate in questo file.
 Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 e il progetto aderisce al [Semantic Versioning](https://semver.org/lang/it/).
 
+## [1.6.3] - 2026-08-31
+
+### Changed
+- Gestione allegati nel reader più compatta: i file incorporati nel messaggio sono raggruppati e richiudibili, mentre gli altri restano disponibili in un elenco scorrevole.
+
 ## [1.6.2] - 2026-08-31
 
 ### Fixed

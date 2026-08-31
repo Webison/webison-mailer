@@ -142,6 +142,19 @@ const isTrashFolder = computed(() => isTrashPath(state.folder))
 const bodyHtml = computed(() => state.selected?.html || '')
 const bodyHtmlDocument = computed(() => frameDocument(bodyHtml.value))
 const bodyText = computed(() => state.selected?.text || '')
+const selectedAttachments = computed(() =>
+  (state.selected?.attachments || []).filter((attachment) => attachment?.stored),
+)
+const selectedRegularAttachments = computed(() =>
+  selectedAttachments.value.filter((attachment) => attachment.disposition !== 'inline'),
+)
+const selectedInlineAttachments = computed(() =>
+  selectedAttachments.value.filter((attachment) => attachment.disposition === 'inline'),
+)
+const inlineAttachmentLabel = computed(() => {
+  const count = selectedInlineAttachments.value.length
+  return `${count} ${count === 1 ? 'file incorporato nel messaggio' : 'file incorporati nel messaggio'}`
+})
 
 const previewText = (m) => m.text || stripHtml(m.html || '')
 
@@ -558,14 +571,18 @@ onBeforeUnmount(() => {
               <div v-if="state.selected.cc"><strong>Cc</strong> {{ state.selected.cc }}</div>
               <div><strong>Data</strong> {{ new Date(state.selected.date).toLocaleString('it-IT') }}</div>
             </div>
-            <div
-              v-if="(state.selected.attachments || []).some((a) => a.stored)"
-              class="attachment-bar"
-            >
-              <div class="attachment-bar-label">Allegati</div>
-              <div class="attachment-list">
+            <div v-if="selectedAttachments.length" class="attachment-bar">
+              <div class="attachment-bar-header">
+                <div class="attachment-bar-label">
+                  Allegati <span class="attachment-count">{{ selectedAttachments.length }}</span>
+                </div>
+                <span v-if="selectedInlineAttachments.length" class="attachment-inline-hint">
+                  {{ inlineAttachmentLabel }}
+                </span>
+              </div>
+              <div v-if="selectedRegularAttachments.length" class="attachment-list">
                 <div
-                  v-for="att in (state.selected.attachments || []).filter((a) => a.stored)"
+                  v-for="att in selectedRegularAttachments"
                   :key="att.id"
                   class="attachment-item"
                 >
@@ -573,7 +590,6 @@ onBeforeUnmount(() => {
                     <strong>{{ att.filename }}</strong>
                     <span>
                       {{ formatAttachmentSize(att.size) }}
-                      <template v-if="att.disposition === 'inline'"> · inline</template>
                     </span>
                   </div>
                   <button
@@ -585,6 +601,32 @@ onBeforeUnmount(() => {
                   </button>
                 </div>
               </div>
+              <details
+                v-if="selectedInlineAttachments.length"
+                :key="state.selected.uid"
+                class="inline-attachments"
+              >
+                <summary>Mostra {{ inlineAttachmentLabel }}</summary>
+                <div class="attachment-list attachment-list--inline">
+                  <div
+                    v-for="att in selectedInlineAttachments"
+                    :key="att.id"
+                    class="attachment-item"
+                  >
+                    <div class="attachment-meta">
+                      <strong>{{ att.filename }}</strong>
+                      <span>{{ formatAttachmentSize(att.size) }} · incorporato</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      @click="saveSelectedAttachment(att)"
+                    >
+                      Scarica
+                    </button>
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
           <div class="reader-body">
