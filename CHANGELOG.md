@@ -5,6 +5,11 @@ Tutte le modifiche rilevanti a questo progetto sono documentate in questo file.
 Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 e il progetto aderisce al [Semantic Versioning](https://semver.org/lang/it/).
 
+## [1.6.4] - 2026-08-31
+
+### Fixed
+- Invio delle risposte corretto: i riferimenti del messaggio sono serializzati prima del passaggio IPC, evitando l’errore “An object could not be cloned”.
+
 ## [1.6.3] - 2026-08-31
 
 ### Changed

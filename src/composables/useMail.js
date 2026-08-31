@@ -610,6 +610,15 @@ async function sendMail() {
     const text = state.compose.isReply
       ? buildReplyText(replyText, state.compose.quoteIntro, state.compose.quoteText)
       : replyText
+    // I dati nel reactive state di Vue sono Proxy e non possono essere trasferiti
+    // tramite IPC. In particolare references, usato nelle risposte, va ridotto a
+    // un array di stringhe prima di inviarlo al processo principale.
+    const references = Array.isArray(state.compose.references)
+      ? state.compose.references.map((reference) => String(reference || '').trim()).filter(Boolean)
+      : []
+    const attachmentIds = (state.compose.attachments || [])
+      .map((attachment) => String(attachment?.stagingId || '').trim())
+      .filter(Boolean)
     await window.webison.sendMail({
       accountId: state.accountId,
       to: state.compose.to,
@@ -617,9 +626,9 @@ async function sendMail() {
       subject: state.compose.subject,
       text,
       html: html || undefined,
-      inReplyTo: state.compose.inReplyTo,
-      references: state.compose.references,
-      attachmentIds: (state.compose.attachments || []).map((att) => att.stagingId),
+      inReplyTo: state.compose.inReplyTo ? String(state.compose.inReplyTo) : null,
+      references,
+      attachmentIds,
     })
     state.compose.attachments = []
     goMail()
