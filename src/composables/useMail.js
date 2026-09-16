@@ -1,6 +1,8 @@
 import { reactive, computed } from 'vue'
 import { normalizeColorPreset } from '../theme/presets'
 import {
+  buildForwardIntro,
+  buildForwardSubject,
   buildReferenceChain,
   buildReplyHtml,
   buildReplyText,
@@ -35,6 +37,7 @@ const state = reactive({
     html: '',
     useHtml: true,
     isReply: false,
+    isForward: false,
     quoteIntro: '',
     quoteText: '',
     quoteHtml: '',
@@ -492,8 +495,77 @@ function replyAllCc(selected, replyTo) {
   return out.join(', ')
 }
 
-function openCompose(reply = false, replyAll = false) {
-  if (reply && state.selected) {
+function isForwardableAttachment(att, html) {
+  if (!att?.id || !att?.stored) return false
+  if (att.disposition === 'attachment') return true
+  const cid = String(att.contentId || '').replace(/^<|>$/g, '').trim().toLowerCase()
+  if (!cid) return true
+  if (att.disposition === 'inline' && html.includes(`cid:${cid}`)) return false
+  return true
+}
+
+function listForwardableAttachments(message) {
+  const list = Array.isArray(message?.attachments) ? message.attachments : []
+  const html = String(message?.html || '').toLowerCase()
+  return list.filter((att) => isForwardableAttachment(att, html))
+}
+
+async function stageForwardAttachments(message) {
+  if (!state.accountId || !message?.uid) return []
+  const folder = currentStoreFolder()
+  const staged = []
+  for (const att of listForwardableAttachments(message)) {
+    if (staged.length >= 20) break
+    try {
+      const item = await window.webison.stageAttachmentFromMessage(
+        state.accountId,
+        folder,
+        message.uid,
+        att.id,
+        {
+          filename: att.filename,
+          contentType: att.contentType,
+          size: att.size,
+        },
+      )
+      if (item?.stagingId) staged.push(item)
+    } catch {
+      // allegato mancante o troppo grande: salta
+    }
+  }
+  return staged
+}
+
+async function openCompose(reply = false, replyAll = false, forward = false) {
+  if (forward && state.selected) {
+    const selected = state.selected
+    const quoteText = selected.text || stripHtml(selected.html || '')
+    const quoteHtml = selected.html || textToHtml(selected.text || '')
+    const quoteIntro = buildForwardIntro({
+      from: selected.from || '',
+      to: selected.to || '',
+      cc: selected.cc || '',
+      date: formatReplyDate(selected.date),
+      subject: selected.subject || '',
+    })
+    const attachments = await stageForwardAttachments(selected)
+    state.compose = {
+      to: '',
+      cc: '',
+      subject: buildForwardSubject(selected.subject),
+      text: withSignature('', { asHtml: false }),
+      html: withSignature('', { asHtml: true }),
+      useHtml: true,
+      isReply: false,
+      isForward: true,
+      quoteIntro,
+      quoteText,
+      quoteHtml,
+      inReplyTo: null,
+      references: null,
+      attachments,
+    }
+  } else if (reply && state.selected) {
     const from = state.selected.from || ''
     const quoteText = state.selected.text || stripHtml(state.selected.html || '')
     const quoteHtml = state.selected.html || textToHtml(state.selected.text || '')
@@ -508,6 +580,7 @@ function openCompose(reply = false, replyAll = false) {
       html: withSignature('', { asHtml: true }),
       useHtml: true,
       isReply: true,
+      isForward: false,
       quoteIntro,
       quoteText,
       quoteHtml,
@@ -524,6 +597,7 @@ function openCompose(reply = false, replyAll = false) {
       html: withSignature('', { asHtml: true }),
       useHtml: true,
       isReply: false,
+      isForward: false,
       quoteIntro: '',
       quoteText: '',
       quoteHtml: '',
@@ -604,10 +678,11 @@ async function sendMail() {
   state.error = ''
   try {
     const replyText = stripHtml(state.compose.html)
-    const html = state.compose.isReply
+    const hasQuote = Boolean(state.compose.isReply || state.compose.isForward)
+    const html = hasQuote
       ? buildReplyHtml(state.compose.html, state.compose.quoteIntro, state.compose.quoteHtml)
       : state.compose.html
-    const text = state.compose.isReply
+    const text = hasQuote
       ? buildReplyText(replyText, state.compose.quoteIntro, state.compose.quoteText)
       : replyText
     // I dati nel reactive state di Vue sono Proxy e non possono essere trasferiti

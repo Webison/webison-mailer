@@ -356,6 +356,14 @@ handle('attachments:pick', async () => {
   return picked
 })
 
+handle('attachments:stageFromMessage', (_e, { accountId, folder, uid, attachmentId, meta }) => {
+  try {
+    return attachments.addStagingFromPart(accountId, folder || 'INBOX', uid, attachmentId, meta || {})
+  } catch (err) {
+    throw new Error(err?.message || 'Impossibile allegare il file')
+  }
+})
+
 handle('attachments:removeStaging', (_e, stagingId) => {
   attachments.removeStaging(stagingId)
   return true

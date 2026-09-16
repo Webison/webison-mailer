@@ -5,6 +5,11 @@ Tutte le modifiche rilevanti a questo progetto sono documentate in questo file.
 Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 e il progetto aderisce al [Semantic Versioning](https://semver.org/lang/it/).
 
+## [1.6.5] - 2026-09-16
+
+### Added
+- Funzione Inoltra: oggetto `I:`, citazione del messaggio originale, allegati originali in staging e invio senza threading di risposta.
+
 ## [1.6.4] - 2026-08-31
 
 ### Fixed

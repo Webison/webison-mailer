@@ -67,8 +67,27 @@ export function buildReplyHtml(replyHtml, intro, quotedHtml) {
   return [
     String(replyHtml || '').trim(),
     '<div class="webison-reply-quote">',
-    `<p>${escapeHtml(intro)}</p>`,
+    `<p>${escapeHtml(intro).replace(/\n/g, '<br>')}</p>`,
     `<blockquote style="margin:0 0 0 .8em;padding-left:1em;border-left:2px solid #c7c7c7">${quote}</blockquote>`,
     '</div>',
   ].join('')
+}
+
+export function buildForwardSubject(subject) {
+  const value = String(subject || '').trim()
+  if (/^I:/i.test(value)) return value
+  return `I: ${value}`
+}
+
+export function buildForwardIntro({ from, to, cc, date, subject } = {}) {
+  const lines = [
+    '---------- Messaggio inoltrato ----------',
+    `Da: ${String(from || '').trim()}`,
+    `Data: ${String(date || '').trim()}`,
+    `Oggetto: ${String(subject || '').trim()}`,
+    `A: ${String(to || '').trim()}`,
+  ]
+  const ccValue = String(cc || '').trim()
+  if (ccValue) lines.push(`Cc: ${ccValue}`)
+  return lines.join('\n')
 }

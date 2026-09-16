@@ -330,6 +330,38 @@ function addStagingFile(filePath) {
   }
 }
 
+function addStagingFromPart(accountId, folder, uid, attachmentId, meta = {}) {
+  const file = attachmentPath(accountId, folder, uid, attachmentId)
+  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    throw new Error('Allegato non trovato')
+  }
+  const stat = fs.statSync(file)
+  if (stat.size > MAX_ATTACHMENT_BYTES) {
+    throw new Error(`Allegato troppo grande (max ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB)`)
+  }
+  const id = randomUUID()
+  const filename = sanitizeFilename(
+    meta.filename || path.basename(file),
+    0,
+    meta.contentType || '',
+  )
+  const contentType = String(meta.contentType || '').trim() || guessContentType(filename)
+  const entry = {
+    id,
+    path: file,
+    filename,
+    size: Number(meta.size) > 0 ? Number(meta.size) : stat.size,
+    contentType,
+  }
+  staging.set(id, entry)
+  return {
+    stagingId: id,
+    filename: entry.filename,
+    size: entry.size,
+    contentType: entry.contentType,
+  }
+}
+
 function getStaging(id) {
   return staging.get(String(id)) || null
 }
@@ -399,6 +431,7 @@ module.exports = {
   hasListAttachmentIndicator,
   extractDataUrlImages,
   addStagingFile,
+  addStagingFromPart,
   getStaging,
   removeStaging,
   clearStaging,

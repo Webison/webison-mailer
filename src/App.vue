@@ -556,6 +556,7 @@ onBeforeUnmount(() => {
                 </button>
                 <button class="btn btn-ghost" @click="openCompose(true)">Rispondi</button>
                 <button class="btn btn-primary" @click="openCompose(true, true)">Rispondi a tutti</button>
+                <button class="btn btn-ghost" @click="openCompose(false, false, true)">Inoltra</button>
                 <button
                   class="btn btn-danger"
                   :disabled="state.loading"

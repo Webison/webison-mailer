@@ -22,7 +22,15 @@ const quoteDocument = computed(() =>
   frameDocument(buildReplyHtml('', props.model.quoteIntro, props.model.quoteHtml)),
 )
 
-const composeTitle = computed(() => (props.model.isReply ? 'Rispondi' : 'Nuovo messaggio'))
+const composeTitle = computed(() => {
+  if (props.model.isForward) return 'Inoltra'
+  if (props.model.isReply) return 'Rispondi'
+  return 'Nuovo messaggio'
+})
+const hasQuote = computed(() => Boolean(props.model.isReply || props.model.isForward))
+const quoteLabel = computed(() =>
+  props.model.isForward ? 'Messaggio inoltrato' : 'Messaggio originale',
+)
 const quoteFrameStyle = computed(() => ({ height: `${quoteHeight.value}px` }))
 const composeAttachments = computed(() =>
   Array.isArray(props.model.attachments) ? props.model.attachments : [],
@@ -194,7 +202,7 @@ onBeforeUnmount(() => quoteResizeObserver?.disconnect())
             @input="updateModel"
             @blur="updateModel"
           />
-          <div v-if="model.isReply" class="reply-quote">
+          <div v-if="hasQuote" class="reply-quote">
             <button
               type="button"
               class="reply-quote-toggle"
@@ -202,7 +210,7 @@ onBeforeUnmount(() => quoteResizeObserver?.disconnect())
               @click="toggleQuote"
             >
               <span class="reply-quote-chevron" :class="{ expanded: quoteExpanded }">›</span>
-              Messaggio originale
+              {{ quoteLabel }}
               <span class="reply-quote-action">{{ quoteExpanded ? 'Nascondi' : 'Mostra' }}</span>
             </button>
             <iframe
@@ -213,7 +221,7 @@ onBeforeUnmount(() => quoteResizeObserver?.disconnect())
               scrolling="no"
               :style="quoteFrameStyle"
               :srcdoc="quoteDocument"
-              title="Messaggio originale"
+              :title="quoteLabel"
               @load="observeQuoteFrame"
             />
           </div>
