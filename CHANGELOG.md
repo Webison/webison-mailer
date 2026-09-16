@@ -5,6 +5,11 @@ Tutte le modifiche rilevanti a questo progetto sono documentate in questo file.
 Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 e il progetto aderisce al [Semantic Versioning](https://semver.org/lang/it/).
 
+## [1.6.7] - 2026-09-16
+
+### Changed
+- Pubblica in release l’header reader riorganizzato (toolbar azioni + oggetto sotto); la tag `v1.6.6` sul remote non includeva ancora queste modifiche UI.
+
 ## [1.6.6] - 2026-09-16
 
 ### Changed
