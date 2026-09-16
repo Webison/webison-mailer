@@ -5,6 +5,11 @@ Tutte le modifiche rilevanti a questo progetto sono documentate in questo file.
 Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 e il progetto aderisce al [Semantic Versioning](https://semver.org/lang/it/).
 
+## [1.6.6] - 2026-09-16
+
+### Changed
+- Header del messaggio: azioni in toolbar dedicata, oggetto sotto a tutta larghezza per una lettura più chiara.
+
 ## [1.6.5] - 2026-09-16
 
 ### Added

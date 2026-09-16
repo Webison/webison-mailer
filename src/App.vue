@@ -545,18 +545,19 @@ onBeforeUnmount(() => {
       <section class="panel reader mail-reader-panel">
         <template v-if="state.selected">
           <div class="reader-header">
-            <div class="reader-title-row">
-              <h1>{{ state.selected.subject }}</h1>
-              <div class="row-actions">
+            <div class="reader-toolbar">
+              <div class="reader-toolbar-main">
+                <button class="btn btn-primary" @click="openCompose(true)">Rispondi</button>
+                <button class="btn btn-ghost" @click="openCompose(true, true)">Rispondi a tutti</button>
+                <button class="btn btn-ghost" @click="openCompose(false, false, true)">Inoltra</button>
+              </div>
+              <div class="reader-toolbar-side">
                 <button
                   class="btn btn-ghost"
                   @click="setMessageSeen(!state.selected.seen)"
                 >
                   {{ state.selected.seen ? 'Non letta' : 'Letta' }}
                 </button>
-                <button class="btn btn-ghost" @click="openCompose(true)">Rispondi</button>
-                <button class="btn btn-primary" @click="openCompose(true, true)">Rispondi a tutti</button>
-                <button class="btn btn-ghost" @click="openCompose(false, false, true)">Inoltra</button>
                 <button
                   class="btn btn-danger"
                   :disabled="state.loading"
@@ -566,6 +567,7 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </div>
+            <h1 class="reader-subject">{{ state.selected.subject || '(senza oggetto)' }}</h1>
             <div class="reader-meta">
               <div><strong>Da</strong> {{ state.selected.from }}</div>
               <div><strong>A</strong> {{ state.selected.to }}</div>
