@@ -10,6 +10,11 @@ e il progetto aderisce al [Semantic Versioning](https://semver.org/lang/it/).
 ### Added
 - Inviti calendario (`.ics` / Meet, Teams, Zoom): card nel reader con riepilogo evento, link riunione e apertura nel calendario di sistema.
 
+## [1.6.8] - 2026-09-16
+
+### Changed
+- Bump di versione automatico CI (nessuna modifica funzionale aggiuntiva rispetto a 1.6.7).
+
 ## [1.6.7] - 2026-09-16
 
 ### Changed
