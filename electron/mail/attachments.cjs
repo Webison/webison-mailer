@@ -96,6 +96,7 @@ function extensionForType(contentType) {
   if (type.includes('webp')) return '.webp'
   if (type.includes('pdf')) return '.pdf'
   if (type.includes('html')) return '.html'
+  if (type.includes('calendar') || type.includes('ics')) return '.ics'
   if (type.includes('plain')) return '.txt'
   return ''
 }
@@ -397,6 +398,7 @@ function guessContentType(filename) {
   if (ext === '.pdf') return 'application/pdf'
   if (ext === '.txt') return 'text/plain'
   if (ext === '.html' || ext === '.htm') return 'text/html'
+  if (ext === '.ics') return 'text/calendar'
   if (ext === '.zip') return 'application/zip'
   return 'application/octet-stream'
 }

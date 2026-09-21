@@ -29,6 +29,7 @@ const state = reactive({
   signatures: [],
   settings: { theme: 'light', colorPreset: 'blu', notificationsEnabled: true, pollIntervalSec: 60 },
   listFilter: 'all',
+  calendarInvite: null,
   compose: {
     to: '',
     cc: '',
@@ -298,10 +299,15 @@ async function loadSettings() {
   applyTheme(state.settings.theme, state.settings.colorPreset)
 }
 
-async function selectAccount(id) {
-  state.accountId = id
+function clearSelectedMessage() {
   state.selectedUid = null
   state.selected = null
+  state.calendarInvite = null
+}
+
+async function selectAccount(id) {
+  state.accountId = id
+  clearSelectedMessage()
   state.error = ''
   await loadFolders()
   await loadLocalMessages()
@@ -358,8 +364,7 @@ async function sync() {
 
 async function selectFolder(path) {
   state.folder = isSentPath(path) ? LOCAL_SENT : path
-  state.selectedUid = null
-  state.selected = null
+  clearSelectedMessage()
   goMail()
   await loadLocalMessages()
   if (isTrashPath(state.folder)) await sync()
@@ -367,11 +372,93 @@ async function selectFolder(path) {
 
 async function selectMessage(uid) {
   state.selectedUid = uid
+  state.calendarInvite = null
   const folder = isSentPath(state.folder) ? LOCAL_SENT : state.folder
   state.selected = await window.webison.getMessage(state.accountId, folder, uid)
   if (state.selected && !state.selected.seen) {
     await setMessageSeen(true)
   }
+  await loadCalendarInvite()
+}
+
+function isCalendarAttachment(att) {
+  if (!att) return false
+  const type = String(att.contentType || '').toLowerCase()
+  const name = String(att.filename || '').toLowerCase()
+  return (
+    type.includes('text/calendar') ||
+    type.includes('application/ics') ||
+    name.endsWith('.ics')
+  )
+}
+
+function findCalendarAttachment(message) {
+  const list = Array.isArray(message?.attachments) ? message.attachments : []
+  return list.find((att) => att?.stored && isCalendarAttachment(att)) || null
+}
+
+async function loadCalendarInvite() {
+  state.calendarInvite = null
+  if (!state.accountId || !state.selected || state.selectedUid == null) return
+  const attachment = findCalendarAttachment(state.selected)
+  if (!attachment?.id || !window.webison?.parseCalendarAttachment) return
+  try {
+    const folder = isSentPath(state.folder) ? LOCAL_SENT : state.folder
+    const summary = await window.webison.parseCalendarAttachment(
+      state.accountId,
+      folder,
+      state.selectedUid,
+      attachment.id,
+    )
+    if (String(state.selectedUid) !== String(state.selected?.uid ?? state.selectedUid)) return
+    state.calendarInvite = {
+      attachmentId: attachment.id,
+      filename: attachment.filename || summary.filename || 'invito.ics',
+      ...summary,
+    }
+  } catch {
+    // invito non leggibile: nessuna card
+  }
+}
+
+async function openCalendarInvite() {
+  if (!state.accountId || state.selectedUid == null || !state.calendarInvite?.attachmentId) return
+  state.loading = true
+  state.error = ''
+  try {
+    const folder = isSentPath(state.folder) ? LOCAL_SENT : state.folder
+    await window.webison.openCalendarAttachment(
+      state.accountId,
+      folder,
+      state.selectedUid,
+      state.calendarInvite.attachmentId,
+    )
+  } catch (err) {
+    state.error = friendlyError(err)
+  } finally {
+    state.loading = false
+  }
+}
+
+async function joinCalendarMeeting() {
+  const url = state.calendarInvite?.meetingUrl
+  if (!url || !window.webison?.openExternal) return
+  try {
+    await window.webison.openExternal(url)
+  } catch (err) {
+    state.error = friendlyError(err)
+  }
+}
+
+async function saveCalendarInvite() {
+  if (!state.calendarInvite?.attachmentId) return
+  const attachment = (state.selected?.attachments || []).find(
+    (item) => String(item.id) === String(state.calendarInvite.attachmentId),
+  ) || {
+    id: state.calendarInvite.attachmentId,
+    filename: state.calendarInvite.filename || 'invito.ics',
+  }
+  await saveSelectedAttachment(attachment)
 }
 
 async function setMessageSeen(seen, uid = null) {
@@ -424,8 +511,7 @@ async function deleteMessage(uid = null) {
       { storeAs: storeFolder, permanent: permanent || !imapFolder },
     )
     if (String(state.selectedUid) === String(targetUid)) {
-      state.selectedUid = null
-      state.selected = null
+      clearSelectedMessage()
     }
   } catch (err) {
     state.error = friendlyError(err)
@@ -446,8 +532,7 @@ async function emptyTrash() {
   try {
     await window.webison.emptyTrash(state.accountId)
     state.messages = []
-    state.selectedUid = null
-    state.selected = null
+    clearSelectedMessage()
   } catch (err) {
     state.error = friendlyError(err)
   } finally {
@@ -735,7 +820,7 @@ async function deleteAccount(id) {
   if (state.accountId) await selectAccount(state.accountId)
   else {
     state.messages = []
-    state.selected = null
+    clearSelectedMessage()
     state.folders = []
   }
   state.editingAccount = null
@@ -885,6 +970,10 @@ export function useMail() {
     pickComposeAttachments,
     removeComposeAttachment,
     saveSelectedAttachment,
+    openCalendarInvite,
+    joinCalendarMeeting,
+    saveCalendarInvite,
+    isCalendarAttachment,
     messageHasAttachments,
     formatAttachmentSize,
     sendMail,

@@ -32,6 +32,10 @@ const {
   pickComposeAttachments,
   removeComposeAttachment,
   saveSelectedAttachment,
+  openCalendarInvite,
+  joinCalendarMeeting,
+  saveCalendarInvite,
+  isCalendarAttachment,
   messageHasAttachments,
   formatAttachmentSize,
   sendMail,
@@ -145,11 +149,14 @@ const bodyText = computed(() => state.selected?.text || '')
 const selectedAttachments = computed(() =>
   (state.selected?.attachments || []).filter((attachment) => attachment?.stored),
 )
+const selectedFileAttachments = computed(() =>
+  selectedAttachments.value.filter((attachment) => !isCalendarAttachment(attachment)),
+)
 const selectedRegularAttachments = computed(() =>
-  selectedAttachments.value.filter((attachment) => attachment.disposition !== 'inline'),
+  selectedFileAttachments.value.filter((attachment) => attachment.disposition !== 'inline'),
 )
 const selectedInlineAttachments = computed(() =>
-  selectedAttachments.value.filter((attachment) => attachment.disposition === 'inline'),
+  selectedFileAttachments.value.filter((attachment) => attachment.disposition === 'inline'),
 )
 const inlineAttachmentLabel = computed(() => {
   const count = selectedInlineAttachments.value.length
@@ -574,10 +581,51 @@ onBeforeUnmount(() => {
               <div v-if="state.selected.cc"><strong>Cc</strong> {{ state.selected.cc }}</div>
               <div><strong>Data</strong> {{ new Date(state.selected.date).toLocaleString('it-IT') }}</div>
             </div>
-            <div v-if="selectedAttachments.length" class="attachment-bar">
+            <div v-if="state.calendarInvite" class="calendar-invite">
+              <div class="calendar-invite-badge">Invito calendario</div>
+              <h2 class="calendar-invite-title">{{ state.calendarInvite.summary }}</h2>
+              <div v-if="state.calendarInvite.when" class="calendar-invite-row">
+                <strong>Quando</strong>
+                <span>{{ state.calendarInvite.when }}</span>
+              </div>
+              <div
+                v-if="state.calendarInvite.location && state.calendarInvite.location !== state.calendarInvite.meetingUrl"
+                class="calendar-invite-row"
+              >
+                <strong>Dove</strong>
+                <span>{{ state.calendarInvite.location }}</span>
+              </div>
+              <div class="calendar-invite-actions">
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  :disabled="state.loading"
+                  @click="openCalendarInvite"
+                >
+                  Aggiungi al calendario
+                </button>
+                <button
+                  v-if="state.calendarInvite.meetingUrl"
+                  type="button"
+                  class="btn btn-ghost"
+                  @click="joinCalendarMeeting"
+                >
+                  Unisci alla riunione
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost"
+                  :disabled="state.loading"
+                  @click="saveCalendarInvite"
+                >
+                  Scarica
+                </button>
+              </div>
+            </div>
+            <div v-if="selectedFileAttachments.length" class="attachment-bar">
               <div class="attachment-bar-header">
                 <div class="attachment-bar-label">
-                  Allegati <span class="attachment-count">{{ selectedAttachments.length }}</span>
+                  Allegati <span class="attachment-count">{{ selectedFileAttachments.length }}</span>
                 </div>
                 <span v-if="selectedInlineAttachments.length" class="attachment-inline-hint">
                   {{ inlineAttachmentLabel }}

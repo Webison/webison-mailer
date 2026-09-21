@@ -4,6 +4,7 @@ const path = require('path')
 const { randomUUID } = require('crypto')
 const store = require('./mail/store.cjs')
 const attachments = require('./mail/attachments.cjs')
+const calendar = require('./mail/calendar.cjs')
 const imap = require('./mail/imap.cjs')
 const smtp = require('./mail/smtp.cjs')
 const watcher = require('./mail/watcher.cjs')
@@ -336,6 +337,37 @@ handle('mail:saveAttachment', async (_e, { accountId, folder, uid, attachmentId,
   if (result.canceled || !result.filePath) return { ok: false, canceled: true }
   attachments.copyPartTo(accountId, folderPath, uid, attachmentId, result.filePath)
   return { ok: true, path: result.filePath }
+})
+
+handle('mail:parseCalendarAttachment', (_e, { accountId, folder, uid, attachmentId }) => {
+  getAccountOrThrow(accountId)
+  const folderPath = folder || 'INBOX'
+  const message = store.getMessage(accountId, folderPath, uid)
+  const meta = (message?.attachments || []).find((item) => String(item.id) === String(attachmentId))
+  if (!meta?.stored) throw new Error('Invito calendario non disponibile')
+  if (!calendar.isCalendarAttachment(meta)) throw new Error('Allegato non è un invito calendario')
+  const buffer = attachments.readPart(accountId, folderPath, uid, attachmentId)
+  if (!buffer) throw new Error('Invito calendario non trovato')
+  const summary = calendar.parseIcsSummary(buffer.toString('utf8'))
+  return { attachmentId: meta.id, filename: meta.filename || 'invito.ics', ...summary }
+})
+
+handle('mail:openCalendarAttachment', async (_e, { accountId, folder, uid, attachmentId }) => {
+  getAccountOrThrow(accountId)
+  const folderPath = folder || 'INBOX'
+  const message = store.getMessage(accountId, folderPath, uid)
+  const meta = (message?.attachments || []).find((item) => String(item.id) === String(attachmentId))
+  if (!meta?.stored) throw new Error('Invito calendario non disponibile')
+  if (!calendar.isCalendarAttachment(meta)) throw new Error('Allegato non è un invito calendario')
+  const tempDir = path.join(app.getPath('temp'), 'webison-mailer-invites')
+  fs.mkdirSync(tempDir, { recursive: true })
+  const safeName = String(meta.filename || 'invito.ics').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+  const base = safeName.toLowerCase().endsWith('.ics') ? safeName : `${safeName}.ics`
+  const target = path.join(tempDir, `invite-${uid}-${attachmentId}-${base}`)
+  attachments.copyPartTo(accountId, folderPath, uid, attachmentId, target)
+  const errorMessage = await shell.openPath(target)
+  if (errorMessage) throw new Error(errorMessage || 'Impossibile aprire il calendario')
+  return { ok: true, path: target }
 })
 
 handle('attachments:pick', async () => {

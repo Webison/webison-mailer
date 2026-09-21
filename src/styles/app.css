@@ -821,6 +821,50 @@ select:focus {
   font-weight: 600;
 }
 
+.calendar-invite {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.calendar-invite-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.calendar-invite-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.calendar-invite-row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: var(--space-2);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.calendar-invite-row strong {
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+.calendar-invite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: 2px;
+}
+
 .reader-actions {
   display: flex;
   gap: var(--space-2);

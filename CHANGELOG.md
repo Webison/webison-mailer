@@ -5,6 +5,11 @@ Tutte le modifiche rilevanti a questo progetto sono documentate in questo file.
 Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 e il progetto aderisce al [Semantic Versioning](https://semver.org/lang/it/).
 
+## [1.7.0] - 2026-09-21
+
+### Added
+- Inviti calendario (`.ics` / Meet, Teams, Zoom): card nel reader con riepilogo evento, link riunione e apertura nel calendario di sistema.
+
 ## [1.6.7] - 2026-09-16
 
 ### Changed

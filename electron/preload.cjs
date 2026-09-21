@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('webison', {
   sendMail: (payload) => ipcRenderer.invoke('mail:send', payload),
   saveAttachment: (accountId, folder, uid, attachmentId, filename) =>
     ipcRenderer.invoke('mail:saveAttachment', { accountId, folder, uid, attachmentId, filename }),
+  parseCalendarAttachment: (accountId, folder, uid, attachmentId) =>
+    ipcRenderer.invoke('mail:parseCalendarAttachment', { accountId, folder, uid, attachmentId }),
+  openCalendarAttachment: (accountId, folder, uid, attachmentId) =>
+    ipcRenderer.invoke('mail:openCalendarAttachment', { accountId, folder, uid, attachmentId }),
   pickAttachments: () => ipcRenderer.invoke('attachments:pick'),
   stageAttachmentFromMessage: (accountId, folder, uid, attachmentId, meta) =>
     ipcRenderer.invoke('attachments:stageFromMessage', {
