@@ -542,6 +542,21 @@ select:focus {
   font-size: 12px;
 }
 
+.mail-search {
+  padding: 10px var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.mail-search label, .mail-search-status {
+  display: block;
+  font-size: 12px;
+  color: var(--text-2);
+  margin: 0 0 6px;
+}
+.mail-search-controls { display: flex; align-items: center; gap: 6px; }
+.mail-search-controls input { flex: 1; min-width: 0; width: 100%; }
+.mail-search-status { margin: 6px 0 0; }
+
 .list-group-label {
   position: sticky;
   top: 0;

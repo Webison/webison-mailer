@@ -11,6 +11,7 @@ const deferred = () => {
 }
 const page = uid => ({ items: [{ uid, seen: true }], total: 1, nextCursor: null })
 function setup(overrides = {}) {
+  mail.resetSearch()
   state.accountId = 'a'; state.folder = 'INBOX'; state.listFilter = 'all'
   state.selected = null; state.selectedUid = null; state.messages = []
   globalThis.window = { webison: {
@@ -59,4 +60,77 @@ test('una selezione lenta non sovrascrive il messaggio selezionato dopo', async 
   old.resolve({ uid: 1, seen: true })
   await first
   assert.equal(state.selected.uid, 2)
+})
+
+const debounce = () => new Promise(resolve => setTimeout(resolve, 340))
+
+test('debounce cerca solo l’ultima query e blocca le pagine precedenti', async () => {
+  const calls = []
+  setup({ listMessages: async (_a, _f, options) => { calls.push(options); return { ...page(2), total: 4, folderTotal: 200 } } })
+  state.nextCursor = '100'
+  mail.setSearchQuery('prima')
+  mail.setSearchQuery('fattura mario')
+  await mail.loadMoreMessages()
+  mail.setListFilter('read')
+  assert.equal(calls.length, 0)
+  assert.equal(state.searchPending, true)
+  assert.equal(state.messages.length, 0)
+  await debounce()
+  assert.deepEqual(calls, [{ filter: 'read', cursor: null, query: 'fattura mario' }])
+  assert.equal(state.resultTotal, 4)
+  assert.equal(state.messageTotal, 200)
+})
+
+test('risposte di query obsolete vengono scartate anche durante il debounce', async () => {
+  const old = deferred()
+  setup({ listMessages: async (_a, _f, { query }) => query === 'prima' ? old.promise : page(2) })
+  mail.setSearchQuery('prima')
+  await debounce()
+  mail.setSearchQuery('seconda')
+  old.resolve(page(1))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(state.messages.length, 0)
+  assert.equal(state.searchPending, true)
+  await debounce()
+  assert.equal(state.messages[0].uid, 2)
+})
+
+test('cancellazione immediata e cambio cartella/account annullano il timer', async () => {
+  const calls = []
+  setup({ listMessages: async (account, folder, options) => { calls.push({ account, folder, ...options }); return page(1) } })
+  mail.setSearchQuery('annullata')
+  mail.setSearchQuery('')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(calls.at(-1).query, '')
+  mail.setSearchQuery('altra')
+  await mail.selectFolder('Sent')
+  assert.equal(state.searchQuery, '')
+  mail.setSearchQuery('altra ancora')
+  await mail.selectAccount('b')
+  await debounce()
+  assert.equal(state.searchQuery, '')
+  assert.ok(calls.every(call => call.query === ''))
+  assert.equal(state.accountId, 'b')
+})
+
+test('notifiche aggiornano la ricerca, apertura la svuota; errori sono visibili', async () => {
+  const queries = []
+  setup({ listMessages: async (_a, _f, { query }) => {
+    queries.push(query)
+    if (query === 'errore') throw new Error('Lettura fallita')
+    return page(1)
+  } })
+  mail.setSearchQuery('fattura')
+  await debounce()
+  await mail.handleMailNew({ accountId: 'a', folder: 'INBOX' })
+  assert.deepEqual(queries, ['fattura', 'fattura'])
+  await mail.handleMailNew({ accountId: 'a', folder: 'INBOX', uid: 1, open: true })
+  assert.equal(state.searchQuery, '')
+  mail.setSearchQuery('errore')
+  await debounce()
+  assert.match(state.listError, /Lettura fallita/)
+  assert.equal(state.loadingMore, false)
+  mail.setSearchQuery('')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(state.listError, '')
 })

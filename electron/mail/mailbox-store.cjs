@@ -1,10 +1,27 @@
 const nativeFs = require('fs/promises')
 const path = require('path')
 const { randomUUID } = require('crypto')
+const { convert } = require('html-to-text')
+
+const normalizeSearch = value => String(value || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+function searchableText(message) {
+  const body = String(message.text || '').trim() ? message.text : convert(message.html || '', {
+    wordwrap: false,
+    limits: { maxInputLength: Infinity },
+    selectors: [
+      { selector: 'a', options: { ignoreHref: true } },
+      { selector: 'img', format: 'skip' },
+      { selector: 'script', format: 'skip' },
+      { selector: 'style', format: 'skip' },
+    ],
+  })
+  return [message.subject, message.from, message.to, message.cc, body].map(normalizeSearch)
+}
 
 // Writes and migration are serialized; warm body reads use atomic files directly.
 function createMailboxStore(directory, attachments, fs = nativeFs) {
   const cache = new Map()
+  let searchCache = new WeakMap()
   const queues = new Map()
   const key = (a, f) => directory(a, f)
   const bodyPath = (dir, uid) => path.join(dir, 'bodies', `${Buffer.from(String(uid)).toString('hex')}.json`)
@@ -122,12 +139,30 @@ function createMailboxStore(directory, attachments, fs = nativeFs) {
     } else await atomic(bodyPath(dir, m.uid), m)
     box.items = box.items.filter(v => String(v.uid) !== String(m.uid))
     box.items.push(summary(m))
+    searchCache.get(box)?.delete(String(m.uid))
   }
   const api = {
-    reset: () => cache.clear(),
-    listMessages: (a, f, opts = {}) => run(a, f, box => {
+    reset: () => { cache.clear(); searchCache = new WeakMap() },
+    listMessages: (a, f, opts = {}) => run(a, f, async (box, dir) => {
       const filter = opts.filter || 'all'
-      const items = box.items.filter(m => filter === 'all' || (filter === 'read' ? m.seen : !m.seen))
+      let items = box.items.filter(m => filter === 'all' || (filter === 'read' ? m.seen : !m.seen))
+      const terms = normalizeSearch(opts.query).trim().split(/\s+/).filter(Boolean)
+      if (terms.length) {
+        let index = searchCache.get(box)
+        if (!index) { index = new Map(); searchCache.set(box, index) }
+        const legacy = box.legacy ? new Map(box.legacy.map(m => [String(m.uid), m])) : null
+        const matches = []
+        for (const item of items) {
+          const uid = String(item.uid)
+          if (!index.has(uid)) {
+            const message = legacy ? legacy.get(uid) : await read(bodyPath(dir, uid), null)
+            if (!message) throw new Error('Corpo email locale non disponibile')
+            index.set(uid, searchableText(message))
+          }
+          if (terms.every(term => index.get(uid).some(field => field.includes(term)))) matches.push(item)
+        }
+        items = matches
+      }
       // The last item's identity survives insertions ahead of the current page.
       const found = opts.cursor == null ? -1 : items.findIndex(m => String(m.uid) === String(opts.cursor))
       const start = found + 1
@@ -176,6 +211,7 @@ function createMailboxStore(directory, attachments, fs = nativeFs) {
         await fs.rm(bodyPath(dir, item.uid), { force: true })
         attachments.deleteForMessages(a, f, [item.uid])
         box.items = box.items.filter(v => String(v.uid) !== String(item.uid))
+        searchCache.get(box)?.delete(String(item.uid))
       }
     })),
     removeMessages: (a, f, uids) => run(a, f, async (box, dir) => {
@@ -184,6 +220,7 @@ function createMailboxStore(directory, attachments, fs = nativeFs) {
         if (box.legacy) box.legacy = box.legacy.filter(m => !set.has(String(m.uid)))
         else for (const uid of set) await fs.rm(bodyPath(dir, uid), { force: true })
         box.items = box.items.filter(m => !set.has(String(m.uid)))
+        for (const uid of set) searchCache.get(box)?.delete(uid)
       })
       attachments.deleteForMessages(a, f, uids)
       return { removed: uids.length }
@@ -193,6 +230,7 @@ function createMailboxStore(directory, attachments, fs = nativeFs) {
         await fs.rm(path.join(dir, 'bodies'), { recursive: true, force: true })
         await fs.mkdir(path.join(dir, 'bodies'), { recursive: true })
         box.items = []; if (box.legacy) box.legacy = []
+        searchCache.delete(box)
       })
       attachments.clearFolderAttachments(a, f)
       return true

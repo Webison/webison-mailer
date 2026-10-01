@@ -18,6 +18,10 @@ const state = reactive({
   folder: 'INBOX',
   messages: [],
   messageTotal: 0,
+  resultTotal: 0,
+  searchQuery: '',
+  searchPending: false,
+  listError: '',
   nextCursor: null,
   loadingMore: false,
   selectedUid: null,
@@ -55,7 +59,37 @@ let listRevision = 0
 let selectionRevision = 0
 let navigationRevision = 0
 const syncingFolders = new Set()
-const viewKey = () => JSON.stringify([state.accountId, state.folder, state.listFilter])
+const viewKey = () => JSON.stringify([state.accountId, state.folder, state.listFilter, state.searchQuery])
+let searchTimer = null
+
+function resetSearch() {
+  clearTimeout(searchTimer)
+  searchTimer = null
+  state.searchQuery = ''
+  state.searchPending = false
+  state.resultTotal = 0
+  state.listError = ''
+  state.loadingMore = false
+  ++listRevision
+}
+
+function setSearchQuery(value) {
+  clearTimeout(searchTimer)
+  state.searchQuery = String(value || '')
+  ++listRevision
+  state.messages = []
+  state.nextCursor = null
+  state.resultTotal = 0
+  state.listError = ''
+  state.loadingMore = false
+  state.searchPending = !!state.searchQuery.trim()
+  if (!state.searchPending) { void loadLocalMessages(); return }
+  searchTimer = setTimeout(() => {
+    searchTimer = null
+    state.searchPending = false
+    void loadLocalMessages()
+  }, 300)
+}
 const mailboxKey = () => JSON.stringify([state.accountId, state.folder])
 
 const currentAccount = computed(() =>
@@ -318,6 +352,7 @@ function clearSelectedMessage() {
 }
 
 async function selectAccount(id) {
+  resetSearch()
   const revision = ++navigationRevision
   state.accountId = id
   state.folder = 'INBOX'
@@ -345,27 +380,31 @@ async function loadFolders() {
 }
 
 async function loadLocalMessages(append = false) {
+  if (state.searchPending) return
   if (!state.accountId) {
-    state.messages = []; state.messageTotal = 0; state.nextCursor = null
+    state.messages = []; state.messageTotal = 0; state.resultTotal = 0; state.nextCursor = null
     return
   }
   if (append && (!state.nextCursor || state.loadingMore)) return
   const key = viewKey()
   const revision = append ? listRevision : ++listRevision
   const cursor = append ? state.nextCursor : null
-  if (!append) { state.messages = []; state.nextCursor = null; state.messageTotal = 0 }
+  if (!append) { state.messages = []; state.nextCursor = null; state.messageTotal = 0; state.resultTotal = 0 }
+  state.listError = ''
   state.loadingMore = true
   try {
-    const page = await window.webison.listMessages(state.accountId, currentStoreFolder(), { filter: state.listFilter, cursor })
+    const page = await window.webison.listMessages(state.accountId, currentStoreFolder(), { filter: state.listFilter, cursor, query: state.searchQuery })
     if (key !== viewKey() || revision !== listRevision) return
     const known = new Set(append ? state.messages.map(m => String(m.uid)) : [])
     state.messages = [...(append ? state.messages : []), ...page.items.filter(m => !known.has(String(m.uid)))]
     state.messageTotal = page.folderTotal ?? page.total
+    state.resultTotal = page.total
     state.nextCursor = page.nextCursor
     if (page.warning) state.error = page.warning
   } catch (err) {
     if (key === viewKey() && revision === listRevision) {
       state.error = friendlyError(err)
+      state.listError = friendlyError(err)
       state.nextCursor = null
     }
   } finally {
@@ -397,6 +436,7 @@ async function sync() {
 }
 
 async function selectFolder(path) {
+  resetSearch()
   const revision = ++navigationRevision
   state.folder = isSentPath(path) ? LOCAL_SENT : path
   state.syncing = syncingFolders.has(mailboxKey())
@@ -870,6 +910,7 @@ async function saveAccount(form) {
 
 async function deleteAccount(id) {
   await window.webison.deleteAccount(id)
+  resetSearch()
   await refreshAccounts()
   if (state.accountId) await selectAccount(state.accountId)
   else {
@@ -924,6 +965,7 @@ async function handleMailNew({ accountId, folder = 'INBOX', uid = null, open = f
     if (accountId === state.accountId && folder === currentStoreFolder()) await loadLocalMessages()
     return
   }
+  resetSearch()
   const revision = ++navigationRevision
   state.accountId = accountId || state.accountId
   state.folder = isSentPath(folder) ? LOCAL_SENT : folder
@@ -983,6 +1025,8 @@ export function useMail() {
     openSettings,
     setSettingsSection,
     setListFilter,
+    setSearchQuery,
+    resetSearch,
     refreshAccounts,
     refreshContacts,
     refreshSignatures,

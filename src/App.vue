@@ -20,6 +20,8 @@ const {
   openSettings,
   setSettingsSection,
   setListFilter,
+  setSearchQuery,
+  resetSearch,
   selectAccount,
   selectFolder,
   selectMessage,
@@ -301,6 +303,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  resetSearch()
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('contextmenu', onGlobalContextMenu)
   if (typeof offMailNew === 'function') offMailNew()
@@ -498,19 +501,36 @@ onBeforeUnmount(() => {
             </button>
           </div>
           <span class="status">
-            {{ state.loadingMore && !state.messages.length ? '…' : `${state.messageTotal}` }}
+            {{ (state.loadingMore || state.searchPending) && !state.messages.length ? '…' : `${state.searchQuery.trim() ? state.resultTotal : state.messageTotal}` }}
           </span>
+        </div>
+
+        <div class="mail-search">
+          <label for="mail-search-input">Cerca nelle email scaricate di questa cartella</label>
+          <div class="mail-search-controls">
+            <input id="mail-search-input" type="search" :value="state.searchQuery"
+              placeholder="Oggetto, corpo, mittente, destinatari…" :disabled="!state.accountId"
+              @input="setSearchQuery($event.target.value)" @keydown.esc.prevent="setSearchQuery('')" />
+            <button v-if="state.searchQuery" type="button" class="btn btn-ghost btn-sm"
+              aria-label="Cancella ricerca" @click="setSearchQuery('')">Cancella</button>
+          </div>
+          <p v-if="state.searchQuery.trim()" class="mail-search-status" role="status" aria-live="polite">
+            {{ state.searchPending || state.loadingMore ? 'Ricerca…' : state.listError ? 'Ricerca non riuscita.' : `${state.resultTotal} ${state.resultTotal === 1 ? 'risultato' : 'risultati'}` }}
+          </p>
+          <p v-if="state.listError" class="mail-search-status" role="alert">{{ state.listError }}</p>
         </div>
 
         <VirtualMessageList :groups="messageGroups" :selected-uid="state.selectedUid"
           :sent="isSentFolder" :format-date="formatDate" :has-attachments="messageHasAttachments"
-          :has-more="state.nextCursor != null" :loading="state.loadingMore"
-          :view-key="JSON.stringify([state.accountId, state.folder, state.listFilter])"
+          :has-more="!state.searchPending && state.nextCursor != null" :loading="state.loadingMore || state.searchPending"
+          :view-key="JSON.stringify([state.accountId, state.folder, state.listFilter, state.searchQuery])"
           @select="selectMessage" @context="openCtxMenu" @more="loadMoreMessages" @close-context="closeCtxMenu">
-          <p v-if="!messageGroups.length" class="empty">
+          <p v-if="!messageGroups.length && !state.loadingMore && !state.searchPending && !state.listError" class="empty">
             {{
               !state.accountId
                 ? 'Aggiungi un account per iniziare.'
+                : state.searchQuery.trim()
+                  ? 'Nessuna email corrisponde alla ricerca con i filtri attuali.'
                 : state.listFilter === 'unread'
                   ? 'Nessuna email non letta.'
                   : state.listFilter === 'read'

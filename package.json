@@ -1,7 +1,7 @@
 {
   "name": "webison-mailer",
   "productName": "Webison Mailer",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "private": true,
   "description": "Webison Mailer — client email locale multi-account",
   "author": "Webison",
@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
+    "html-to-text": "^10.0.0",
     "imapflow": "^1.0.191",
     "mailparser": "^3.7.4",
     "nodemailer": "^7.0.5",

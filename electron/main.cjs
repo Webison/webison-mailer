@@ -307,9 +307,9 @@ handle('mail:sync', async (_e, { accountId, folder, storeAs }) => {
   )
 })
 
-handle('mail:list', (_e, { accountId, folder, filter, cursor }) => {
+handle('mail:list', (_e, { accountId, folder, filter, cursor, query }) => {
   getAccountOrThrow(accountId)
-  return store.listMessages(accountId, folder || 'INBOX', { filter, cursor })
+  return store.listMessages(accountId, folder || 'INBOX', { filter, cursor, query })
 })
 
 handle('mail:get', async (_e, { accountId, folder, uid }) => {
