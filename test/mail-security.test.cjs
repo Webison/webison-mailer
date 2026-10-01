@@ -62,7 +62,7 @@ test('valida account, host e porte prima di usare la rete', () => {
   )
 })
 
-test('lo store impedisce traversal tramite account e cartella', () => {
+test('lo store impedisce traversal tramite account e cartella', async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'webison-mailer-test-'))
   const sentinel = path.join(tempRoot, 'sentinel.txt')
   fs.writeFileSync(sentinel, 'keep')
@@ -75,15 +75,15 @@ test('lo store impedisce traversal tramite account e cartella', () => {
   assert.throws(() => store.deleteAccount('../../'), /identificativo account non valido/)
   assert.equal(fs.readFileSync(sentinel, 'utf8'), 'keep')
 
-  store.saveMessages(ACCOUNT_ID, '..', [{ uid: 1, subject: 'test' }])
-  const expected = path.join(tempRoot, 'webison-data', 'mail', ACCOUNT_ID, '_dotdot', 'messages.json')
+  await store.saveMessages(ACCOUNT_ID, '..', [{ uid: 1, subject: 'test' }])
+  const expected = path.join(tempRoot, 'webison-data', 'mail', ACCOUNT_ID, '_dotdot', 'index.json')
   assert.equal(fs.existsSync(expected), true)
 
   store.saveMessages(ACCOUNT_ID, 'INBOX', [{ uid: 10, subject: 'da spostare' }])
-  const moved = store.moveMessages(ACCOUNT_ID, 'INBOX', 'Trash', [10], { 10: 99 })
-  assert.equal(moved.source.length, 0)
+  const moved = await store.moveMessages(ACCOUNT_ID, 'INBOX', 'Trash', [10], { 10: 99 })
+  assert.equal((await store.listMessages(ACCOUNT_ID, 'INBOX')).total, 0)
   assert.equal(moved.moved[0].uid, 99)
-  assert.equal(store.getMessage(ACCOUNT_ID, 'Trash', 99).subject, 'da spostare')
+  assert.equal((await store.getMessage(ACCOUNT_ID, 'Trash', 99)).subject, 'da spostare')
 })
 
 test('il transport SMTP disabilita accesso a file e URL', () => {

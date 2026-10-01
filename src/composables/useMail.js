@@ -1,5 +1,5 @@
 import { reactive, computed } from 'vue'
-import { normalizeColorPreset } from '../theme/presets'
+import { normalizeColorPreset } from '../theme/presets.js'
 import {
   buildForwardIntro,
   buildForwardSubject,
@@ -17,6 +17,9 @@ const state = reactive({
   folders: [],
   folder: 'INBOX',
   messages: [],
+  messageTotal: 0,
+  nextCursor: null,
+  loadingMore: false,
   selectedUid: null,
   selected: null,
   loading: false,
@@ -47,6 +50,13 @@ const state = reactive({
     attachments: [],
   },
 })
+
+let listRevision = 0
+let selectionRevision = 0
+let navigationRevision = 0
+const syncingFolders = new Set()
+const viewKey = () => JSON.stringify([state.accountId, state.folder, state.listFilter])
+const mailboxKey = () => JSON.stringify([state.accountId, state.folder])
 
 const currentAccount = computed(() =>
   state.accounts.find((a) => a.id === state.accountId) || null,
@@ -156,6 +166,7 @@ const messageGroups = computed(() => {
 
 function setListFilter(filter) {
   state.listFilter = filter === 'unread' || filter === 'read' ? filter : 'all'
+  void loadLocalMessages().catch(err => { state.error = friendlyError(err) })
 }
 
 function formatDate(ts) {
@@ -300,85 +311,117 @@ async function loadSettings() {
 }
 
 function clearSelectedMessage() {
+  selectionRevision++
   state.selectedUid = null
   state.selected = null
   state.calendarInvite = null
 }
 
 async function selectAccount(id) {
+  const revision = ++navigationRevision
   state.accountId = id
+  state.folder = 'INBOX'
+  state.folders = [{ path: 'INBOX', name: 'INBOX', specialUse: '\\Inbox' }]
+  state.syncing = syncingFolders.has(mailboxKey())
   clearSelectedMessage()
   state.error = ''
-  await loadFolders()
   await loadLocalMessages()
+  if (revision !== navigationRevision) return
+  void loadFolders()
+  void sync()
 }
 
 async function loadFolders() {
-  if (!state.accountId) {
-    state.folders = []
-    return
-  }
+  const accountId = state.accountId
+  const revision = navigationRevision
+  if (!accountId) return
   try {
-    state.folders = await window.webison.listFolders(state.accountId)
-    if (!isSentPath(state.folder) && !state.folders.some((f) => f.path === state.folder)) {
-      const inbox = state.folders.find((f) => f.specialUse === '\\Inbox' || f.path.toUpperCase() === 'INBOX')
-      state.folder = inbox?.path || state.folders[0]?.path || 'INBOX'
-    }
-    if (isSentPath(state.folder)) state.folder = LOCAL_SENT
+    const folders = await window.webison.listFolders(accountId)
+    if (state.accountId !== accountId || revision !== navigationRevision) return
+    state.folders = folders
   } catch (err) {
-    state.folders = [{ path: 'INBOX', name: 'INBOX', specialUse: '\\Inbox' }]
-    state.error = friendlyError(err)
+    if (state.accountId === accountId && revision === navigationRevision) state.error = friendlyError(err)
   }
 }
 
-async function loadLocalMessages() {
+async function loadLocalMessages(append = false) {
   if (!state.accountId) {
-    state.messages = []
+    state.messages = []; state.messageTotal = 0; state.nextCursor = null
     return
   }
-  const folder = isSentPath(state.folder) ? LOCAL_SENT : state.folder
-  state.messages = await window.webison.listMessages(state.accountId, folder)
+  if (append && (!state.nextCursor || state.loadingMore)) return
+  const key = viewKey()
+  const revision = append ? listRevision : ++listRevision
+  const cursor = append ? state.nextCursor : null
+  if (!append) { state.messages = []; state.nextCursor = null; state.messageTotal = 0 }
+  state.loadingMore = true
+  try {
+    const page = await window.webison.listMessages(state.accountId, currentStoreFolder(), { filter: state.listFilter, cursor })
+    if (key !== viewKey() || revision !== listRevision) return
+    const known = new Set(append ? state.messages.map(m => String(m.uid)) : [])
+    state.messages = [...(append ? state.messages : []), ...page.items.filter(m => !known.has(String(m.uid)))]
+    state.messageTotal = page.folderTotal ?? page.total
+    state.nextCursor = page.nextCursor
+    if (page.warning) state.error = page.warning
+  } catch (err) {
+    if (key === viewKey() && revision === listRevision) {
+      state.error = friendlyError(err)
+      state.nextCursor = null
+    }
+  } finally {
+    if (revision === listRevision) state.loadingMore = false
+  }
 }
+
+async function loadMoreMessages() { await loadLocalMessages(true) }
 
 async function sync() {
-  if (!state.accountId || state.syncing) return
+  if (!state.accountId) return
+  const accountId = state.accountId
+  const folder = state.folder
+  const storeFolder = currentStoreFolder()
+  const remote = currentImapFolder()
+  const key = mailboxKey()
+  if (!remote || syncingFolders.has(key)) return
+  syncingFolders.add(key)
   state.syncing = true
-  state.error = ''
   try {
-    if (isSentPath(state.folder)) {
-      const remote = imapSentPath()
-      if (remote) {
-        await window.webison.syncMail(state.accountId, remote, LOCAL_SENT)
-      }
-      state.messages = await window.webison.listMessages(state.accountId, LOCAL_SENT)
-    } else {
-      state.messages = await window.webison.syncMail(state.accountId, state.folder)
-    }
+    await window.webison.syncMail(accountId, remote, storeFolder)
+    if (state.accountId === accountId && state.folder === folder) await loadLocalMessages()
   } catch (err) {
-    state.error = friendlyError(err)
-    await loadLocalMessages()
+    if (mailboxKey() === key) state.error = friendlyError(err)
   } finally {
-    state.syncing = false
+    syncingFolders.delete(key)
+    state.syncing = syncingFolders.has(mailboxKey())
   }
 }
 
 async function selectFolder(path) {
+  const revision = ++navigationRevision
   state.folder = isSentPath(path) ? LOCAL_SENT : path
+  state.syncing = syncingFolders.has(mailboxKey())
   clearSelectedMessage()
   goMail()
   await loadLocalMessages()
-  if (isTrashPath(state.folder)) await sync()
+  if (revision !== navigationRevision) return
+  void sync()
 }
 
 async function selectMessage(uid) {
+  const revision = ++selectionRevision
+  const key = mailboxKey()
   state.selectedUid = uid
+  state.selected = null
   state.calendarInvite = null
-  const folder = isSentPath(state.folder) ? LOCAL_SENT : state.folder
-  state.selected = await window.webison.getMessage(state.accountId, folder, uid)
-  if (state.selected && !state.selected.seen) {
-    await setMessageSeen(true)
+  try {
+    const message = await window.webison.getMessage(state.accountId, currentStoreFolder(), uid)
+    if (revision !== selectionRevision || key !== mailboxKey()) return
+    state.selected = message
+    if (message && !message.seen) void setMessageSeen(true)
+    void loadCalendarInvite()
+  } catch (err) {
+    if (revision === selectionRevision && key === mailboxKey()) state.error = friendlyError(err)
   }
-  await loadCalendarInvite()
 }
 
 function isCalendarAttachment(att) {
@@ -400,6 +443,8 @@ function findCalendarAttachment(message) {
 async function loadCalendarInvite() {
   state.calendarInvite = null
   if (!state.accountId || !state.selected || state.selectedUid == null) return
+  const revision = selectionRevision
+  const key = mailboxKey()
   const attachment = findCalendarAttachment(state.selected)
   if (!attachment?.id || !window.webison?.parseCalendarAttachment) return
   try {
@@ -410,7 +455,7 @@ async function loadCalendarInvite() {
       state.selectedUid,
       attachment.id,
     )
-    if (String(state.selectedUid) !== String(state.selected?.uid ?? state.selectedUid)) return
+    if (revision !== selectionRevision || key !== mailboxKey()) return
     state.calendarInvite = {
       attachmentId: attachment.id,
       filename: attachment.filename || summary.filename || 'invito.ics',
@@ -465,6 +510,7 @@ async function setMessageSeen(seen, uid = null) {
   const targetUid = uid ?? state.selectedUid
   if (!state.accountId || targetUid == null) return
   const folder = isSentPath(state.folder) ? LOCAL_SENT : state.folder
+  const key = mailboxKey()
   try {
     const updated = await window.webison.setMessageSeen(
       state.accountId,
@@ -472,12 +518,14 @@ async function setMessageSeen(seen, uid = null) {
       targetUid,
       Boolean(seen),
     )
+    if (key !== mailboxKey()) return
     if (updated) {
       const idx = state.messages.findIndex((m) => String(m.uid) === String(targetUid))
       if (idx >= 0) state.messages[idx] = { ...state.messages[idx], seen: Boolean(seen) }
       if (String(state.selectedUid) === String(targetUid) && state.selected) {
-        state.selected = { ...state.selected, ...updated, seen: Boolean(seen) }
+        state.selected = { ...state.selected, seen: Boolean(seen) }
       }
+      await loadLocalMessages()
     }
   } catch (err) {
     state.error = friendlyError(err)
@@ -490,7 +538,7 @@ async function deleteMessage(uid = null) {
 
   const storeFolder = currentStoreFolder()
   const imapFolder = currentImapFolder()
-  const permanent = isTrashPath(state.folder) || String(targetUid).startsWith('local-')
+  const permanent = isTrashPath(state.folder) || !/^\d+$/.test(String(targetUid))
 
   if (permanent) {
     const ok = window.confirm(
@@ -504,12 +552,15 @@ async function deleteMessage(uid = null) {
   state.loading = true
   state.error = ''
   try {
-    state.messages = await window.webison.deleteMessages(
+    const key = mailboxKey()
+    await window.webison.deleteMessages(
       state.accountId,
       imapFolder || null,
       [targetUid],
       { storeAs: storeFolder, permanent: permanent || !imapFolder },
     )
+    if (key !== mailboxKey()) return
+    await loadLocalMessages()
     if (String(state.selectedUid) === String(targetUid)) {
       clearSelectedMessage()
     }
@@ -532,6 +583,8 @@ async function emptyTrash() {
   try {
     await window.webison.emptyTrash(state.accountId)
     state.messages = []
+    state.messageTotal = 0
+    state.nextCursor = null
     clearSelectedMessage()
   } catch (err) {
     state.error = friendlyError(err)
@@ -738,6 +791,7 @@ async function saveSelectedAttachment(attachment) {
 }
 
 function messageHasAttachments(message) {
+  if (message?.hasAttachments != null) return message.hasAttachments
   const list = Array.isArray(message?.attachments) ? message.attachments : []
   if (!list.length) return false
   const html = String(message.html || '').toLowerCase()
@@ -867,27 +921,20 @@ async function saveSettings(patch) {
 
 async function handleMailNew({ accountId, folder = 'INBOX', uid = null, open = false } = {}) {
   if (!open) {
-    const currentFolder = String(state.folder || '').toUpperCase()
-    if (accountId === state.accountId && currentFolder === String(folder).toUpperCase()) {
-      await sync()
-    }
+    if (accountId === state.accountId && folder === currentStoreFolder()) await loadLocalMessages()
     return
   }
-
-  if (accountId) await selectAccount(accountId)
-  const inbox = state.folders.find(
-    (f) => f.specialUse === '\\Inbox' || f.path.toUpperCase() === 'INBOX',
-  )
-  const targetFolder =
-    state.folders.find((f) => f.path === folder)?.path ||
-    inbox?.path ||
-    folder ||
-    'INBOX'
-  await selectFolder(targetFolder)
-  await sync()
-  if (uid != null && state.messages.some((message) => String(message.uid) === String(uid))) {
-    await selectMessage(uid)
-  }
+  const revision = ++navigationRevision
+  state.accountId = accountId || state.accountId
+  state.folder = isSentPath(folder) ? LOCAL_SENT : folder
+  state.syncing = syncingFolders.has(mailboxKey())
+  clearSelectedMessage()
+  goMail()
+  // Opening the body does not depend on pagination or the current filter.
+  if (uid != null) void selectMessage(uid)
+  await loadLocalMessages()
+  if (revision !== navigationRevision) return
+  void loadFolders()
 }
 
 async function markAllInboxRead() {
@@ -901,39 +948,20 @@ async function markAllInboxRead() {
 }
 
 async function bootstrap() {
-  await loadSettings()
-  await refreshAccounts()
-  await refreshContacts()
-  await refreshSignatures()
-  if (state.accountId) {
+  const revision = navigationRevision
+  await Promise.all([loadSettings(), refreshAccounts()])
+  void Promise.all([refreshContacts(), refreshSignatures()]).catch(err => { state.error = friendlyError(err) })
+  if (state.accountId && revision === navigationRevision) {
     await selectAccount(state.accountId)
-    await syncInboxesAtStartup()
+    void syncInboxesAtStartup()
   }
 }
 
 async function syncInboxesAtStartup() {
-  if (!state.accounts.length || state.syncing) return
-  const activeAccountId = state.accountId
-  state.syncing = true
-  state.error = ''
-  try {
-    const results = await Promise.allSettled(
-      state.accounts.map((account) => window.webison.syncMail(account.id, 'INBOX')),
-    )
-    if (state.accountId !== activeAccountId) return
-
-    const activeIndex = state.accounts.findIndex((account) => account.id === activeAccountId)
-    const activeResult = results[activeIndex]
-    const currentFolder = String(state.folder || '').toUpperCase()
-    if (activeResult?.status === 'fulfilled' && currentFolder === 'INBOX') {
-      state.messages = activeResult.value
-    } else if (activeResult?.status === 'rejected') {
-      state.error = friendlyError(activeResult.reason)
-      await loadLocalMessages()
-    }
-  } finally {
-    state.syncing = false
-  }
+  await Promise.allSettled(state.accounts.map(async account => {
+    await window.webison.syncMail(account.id, 'INBOX')
+    if (state.accountId === account.id && state.folder === 'INBOX') await loadLocalMessages()
+  }))
 }
 
 export function useMail() {
@@ -961,6 +989,7 @@ export function useMail() {
     selectAccount,
     selectFolder,
     selectMessage,
+    loadMoreMessages,
     setMessageSeen,
     deleteMessage,
     emptyTrash,

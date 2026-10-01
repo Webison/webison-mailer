@@ -1,14 +1,16 @@
 const { Notification } = require('electron')
 const store = require('./store.cjs')
-const imap = require('./imap.cjs')
+const syncService = require('./sync.cjs')
 const { mailErrorInfo } = require('./errors.cjs')
 const { sendMailNewWhenReady } = require('./notification-target.cjs')
 
 let timer = null
+let startupTimer = null
 let running = false
 let decryptAccount = null
 let getMainWindow = null
 const lastDiagnostics = new Map()
+const rendererTimers = new Map()
 
 function truncate(text, max = 80) {
   const value = String(text || '').replace(/\s+/g, ' ').trim()
@@ -43,78 +45,55 @@ function showNotification({ title, body, accountId, folder = 'INBOX', uid }) {
 }
 
 async function pollAccount(account) {
-  const full = decryptAccount(account)
-  const messages = await imap.checkNewMessages(full, 'INBOX', 30)
+  await syncService.sync(decryptAccount(account), 'INBOX')
   lastDiagnostics.delete(account.id)
-  const uids = messages.map((m) => m.uid)
-  const prev = store.getAccountNotifyState(account.id)
+}
 
-  if (!prev.initialized) {
-    store.setAccountNotifyState(account.id, { uids, initialized: true })
-    return
-  }
-
-  const known = new Set(prev.uids.map(Number))
-  const fresh = messages.filter((m) => !known.has(m.uid)).sort((a, b) => a.date - b.date)
-
-  store.setAccountNotifyState(account.id, {
-    uids: [...new Set([...prev.uids, ...uids])].slice(-200),
-    initialized: true,
-  })
-
-  if (!fresh.length) return
-
+function handleSaved({ accountId, folder, messages, notify }) {
+  const key = JSON.stringify([accountId, folder])
+  clearTimeout(rendererTimers.get(key))
+  rendererTimers.set(key, setTimeout(() => {
+    rendererTimers.delete(key)
+    notifyRenderer({ accountId, folder, open: false })
+  }, 80))
+  if (!messages?.length || !notify || String(folder).toUpperCase() !== 'INBOX' || store.getSettings().notificationsEnabled === false) return
+  const account = store.getAccount(accountId)
+  if (!account) return
   const title = account.name || account.email || 'Webison Mailer'
-  if (fresh.length > 3) {
-    const latest = fresh[fresh.length - 1]
-    showNotification({
-      title,
-      body: `${fresh.length} nuovi messaggi`,
-      accountId: account.id,
-      uid: latest?.uid,
-    })
+  if (messages.length > 3) {
+    showNotification({ title, body: `${messages.length} nuovi messaggi`, accountId, folder, uid: messages[0].uid })
   } else {
-    for (const msg of fresh) {
-      showNotification({
-        title,
-        body: `${truncate(msg.from, 40)}\n${truncate(msg.subject, 70)}`,
-        accountId: account.id,
-        uid: msg.uid,
-      })
-    }
+    for (const message of messages) showNotification({ title,
+      body: truncate(message.from, 40) + '\n' + truncate(message.subject, 70),
+      accountId, folder, uid: message.uid })
   }
-
-  notifyRenderer({ accountId: account.id, folder: 'INBOX', open: false })
 }
 
 async function tick() {
   if (running) return
-  const settings = store.getSettings()
-  if (settings.notificationsEnabled === false) return
 
   running = true
   try {
     const accounts = store.listAccounts()
-    for (const account of accounts) {
-      try {
-        await pollAccount(account)
-      } catch (err) {
+    await Promise.allSettled(accounts.map(async account => {
+      try { await pollAccount(account) }
+      catch (err) {
         lastDiagnostics.set(account.id, mailErrorInfo(err, {
-          service: 'IMAP',
-          host: account.imapHost,
-          port: account.imapPort,
-          secure: account.imapSecure,
-          phase: 'controllo nuovi messaggi',
+          service: 'IMAP', host: account.imapHost, port: account.imapPort,
+          secure: account.imapSecure, phase: 'controllo nuovi messaggi',
         }))
-        // un account offline non deve fermare gli altri
       }
-    }
+    }))
   } finally {
     running = false
   }
 }
 
 function stopMailWatcher() {
+  for (const timer of rendererTimers.values()) clearTimeout(timer)
+  rendererTimers.clear()
+  clearTimeout(startupTimer)
+  startupTimer = null
   if (timer) {
     clearInterval(timer)
     timer = null
@@ -124,13 +103,14 @@ function stopMailWatcher() {
 function startMailWatcher({ decrypt, getWindow }) {
   decryptAccount = decrypt
   getMainWindow = getWindow
+  syncService.setListener(handleSaved)
   stopMailWatcher()
 
   const settings = store.getSettings()
   const ms = Math.max(15, Number(settings.pollIntervalSec) || 60) * 1000
 
   // baseline subito senza aspettare il primo intervallo
-  setTimeout(() => {
+  startupTimer = setTimeout(() => {
     tick()
   }, 4000)
 

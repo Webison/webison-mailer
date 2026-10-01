@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('webison', {
   testAccountConnection: (input) => ipcRenderer.invoke('accounts:test', input),
   listFolders: (accountId) => ipcRenderer.invoke('mail:folders', accountId),
   syncMail: (accountId, folder, storeAs) => ipcRenderer.invoke('mail:sync', { accountId, folder, storeAs }),
-  listMessages: (accountId, folder) => ipcRenderer.invoke('mail:list', { accountId, folder }),
+  listMessages: (accountId, folder, options = {}) => ipcRenderer.invoke('mail:list', { accountId, folder, ...options }),
   getMessage: (accountId, folder, uid) => ipcRenderer.invoke('mail:get', { accountId, folder, uid }),
   setMessageSeen: (accountId, folder, uid, seen) =>
     ipcRenderer.invoke('mail:setSeen', { accountId, folder, uid, seen }),

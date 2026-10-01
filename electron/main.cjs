@@ -8,6 +8,7 @@ const calendar = require('./mail/calendar.cjs')
 const imap = require('./mail/imap.cjs')
 const smtp = require('./mail/smtp.cjs')
 const watcher = require('./mail/watcher.cjs')
+const syncService = require('./mail/sync.cjs')
 const updater = require('./updater.cjs')
 const { resolveStoreUserDataPath } = require('./user-data.cjs')
 const { asFriendlyError, mailErrorInfo, mailSuccessInfo } = require('./mail/errors.cjs')
@@ -300,33 +301,28 @@ handle('mail:sync', async (_e, { accountId, folder, storeAs }) => {
   const account = getAccountOrThrow(accountId)
   const folderPath = folder || 'INBOX'
   const key = storeAs || folderPath
-  const messages = await runMailOperation(
+  return runMailOperation(
     mailContext('IMAP', account, `sincronizzazione cartella ${folderPath}`),
-    () => imap.fetchMessages(withPassword(account), folderPath, 50, {
-      accountId,
-      storeAs: key,
-    }),
+    () => syncService.sync(withPassword(account), folderPath, key),
   )
-  store.saveMessages(accountId, key, messages)
-  return store.listMessages(accountId, key)
 })
 
-handle('mail:list', (_e, { accountId, folder }) => {
+handle('mail:list', (_e, { accountId, folder, filter, cursor }) => {
   getAccountOrThrow(accountId)
-  return store.listMessages(accountId, folder || 'INBOX')
+  return store.listMessages(accountId, folder || 'INBOX', { filter, cursor })
 })
 
-handle('mail:get', (_e, { accountId, folder, uid }) => {
+handle('mail:get', async (_e, { accountId, folder, uid }) => {
   getAccountOrThrow(accountId)
   const folderPath = folder || 'INBOX'
-  const message = store.getMessage(accountId, folderPath, uid)
+  const message = await store.getMessage(accountId, folderPath, uid)
   return attachments.messageWithDisplayHtml(message, accountId, folderPath)
 })
 
 handle('mail:saveAttachment', async (_e, { accountId, folder, uid, attachmentId, filename }) => {
   getAccountOrThrow(accountId)
   const folderPath = folder || 'INBOX'
-  const message = store.getMessage(accountId, folderPath, uid)
+  const message = await store.getMessage(accountId, folderPath, uid)
   const meta = (message?.attachments || []).find((item) => String(item.id) === String(attachmentId))
   if (!meta?.stored) throw new Error('Allegato non disponibile')
 
@@ -339,10 +335,10 @@ handle('mail:saveAttachment', async (_e, { accountId, folder, uid, attachmentId,
   return { ok: true, path: result.filePath }
 })
 
-handle('mail:parseCalendarAttachment', (_e, { accountId, folder, uid, attachmentId }) => {
+handle('mail:parseCalendarAttachment', async (_e, { accountId, folder, uid, attachmentId }) => {
   getAccountOrThrow(accountId)
   const folderPath = folder || 'INBOX'
-  const message = store.getMessage(accountId, folderPath, uid)
+  const message = await store.getMessage(accountId, folderPath, uid)
   const meta = (message?.attachments || []).find((item) => String(item.id) === String(attachmentId))
   if (!meta?.stored) throw new Error('Invito calendario non disponibile')
   if (!calendar.isCalendarAttachment(meta)) throw new Error('Allegato non è un invito calendario')
@@ -355,7 +351,7 @@ handle('mail:parseCalendarAttachment', (_e, { accountId, folder, uid, attachment
 handle('mail:openCalendarAttachment', async (_e, { accountId, folder, uid, attachmentId }) => {
   getAccountOrThrow(accountId)
   const folderPath = folder || 'INBOX'
-  const message = store.getMessage(accountId, folderPath, uid)
+  const message = await store.getMessage(accountId, folderPath, uid)
   const meta = (message?.attachments || []).find((item) => String(item.id) === String(attachmentId))
   if (!meta?.stored) throw new Error('Invito calendario non disponibile')
   if (!calendar.isCalendarAttachment(meta)) throw new Error('Allegato non è un invito calendario')
@@ -404,21 +400,20 @@ handle('attachments:removeStaging', (_e, stagingId) => {
 handle('mail:setSeen', async (_e, { accountId, folder, uid, seen }) => {
   const account = getAccountOrThrow(accountId)
   const folderPath = folder || 'INBOX'
-  try {
-    await imap.setMessageSeen(withPassword(account), folderPath, uid, Boolean(seen))
-  } catch {
-    // aggiorna comunque la cache locale se IMAP fallisce (es. offline)
+  const updated = await store.setMessageSeen(accountId, folderPath, uid, Boolean(seen))
+  if (updated && !updated.archived) {
+    imap.setMessageSeen(withPassword(account), folderPath, uid, Boolean(seen)).catch(() => {})
   }
-  return store.setMessageSeen(accountId, folderPath, uid, Boolean(seen))
+  return updated
 })
 
 handle('mail:delete', async (_e, { accountId, folder, storeAs, uids, permanent }) => {
   const account = getAccountOrThrow(accountId)
   const list = (Array.isArray(uids) ? uids : [uids]).filter((u) => u != null)
-  if (!list.length) return store.listMessages(accountId, storeAs || folder || 'INBOX')
+  if (!list.length) return { removed: 0 }
 
   const storeKey = storeAs || folder || 'INBOX'
-  const remote = list.filter((u) => !String(u).startsWith('local-'))
+  const remote = list.filter((u) => /^\d+$/.test(String(u)))
   let deleteResult = null
   if (remote.length && folder) {
     deleteResult = await runMailOperation(
@@ -429,7 +424,7 @@ handle('mail:delete', async (_e, { accountId, folder, storeAs, uids, permanent }
     )
   }
   if (deleteResult?.trashed && deleteResult.trashPath) {
-    const cached = store.moveMessages(
+    const cached = await store.moveMessages(
       accountId,
       storeKey,
       deleteResult.trashPath,
@@ -438,16 +433,12 @@ handle('mail:delete', async (_e, { accountId, folder, storeAs, uids, permanent }
     )
     if (cached.moved.length < remote.length) {
       try {
-        const trashMessages = await imap.fetchMessages(withPassword(account), deleteResult.trashPath, 50, {
-          accountId,
-          storeAs: deleteResult.trashPath,
-        })
-        store.saveMessages(accountId, deleteResult.trashPath, trashMessages)
+        await syncService.sync(withPassword(account), deleteResult.trashPath)
       } catch {
         // Il MOVE è già riuscito: il Cestino verrà sincronizzato quando viene aperto.
       }
     }
-    return cached.source
+    return { removed: list.length }
   }
   return store.removeMessages(accountId, storeKey, list)
 })
@@ -458,7 +449,7 @@ handle('mail:emptyTrash', async (_e, { accountId }) => {
     mailContext('IMAP', account, 'svuotamento cestino'),
     () => imap.emptyTrash(withPassword(account)),
   )
-  store.clearMessages(accountId, trashPath)
+  await store.clearMessages(accountId, trashPath)
   return { trashPath }
 })
 
@@ -474,7 +465,8 @@ handle('mail:markAllInboxRead', async () => {
 
       const inboxPath = inbox.path || 'INBOX'
       await imap.markAllMessagesSeen(withPassword(account), inboxPath, true)
-      store.clearMessages(account.id, inboxPath)
+      const state = await store.getSyncState(account.id, inboxPath)
+      await store.updateFlags(account.id, inboxPath, state.cached.map(uid => ({ uid, seen: true })))
     } catch {
       // se un account fallisce non bloccare gli altri
     }
@@ -566,7 +558,7 @@ handle('mail:send', async (_e, {
     references: references || [],
     attachments: savedMeta,
   }
-  store.saveMessages(accountId, 'Sent', [sentMessage])
+  await store.saveMessages(accountId, 'Sent', [sentMessage])
   attachments.clearStaging(stagingIds)
 
   try {

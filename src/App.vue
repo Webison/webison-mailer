@@ -3,6 +3,7 @@ import { onMounted, computed, ref, onBeforeUnmount } from 'vue'
 import { useMail } from './composables/useMail'
 import { useResizableLayout } from './composables/useResizableLayout'
 import ComposeDialog from './components/ComposeDialog.vue'
+import VirtualMessageList from './components/VirtualMessageList.vue'
 import SettingsShell from './components/SettingsShell.vue'
 import { frameDocument } from './utils/frameDocument.mjs'
 import appIcon from '../build/icon.png'
@@ -22,6 +23,7 @@ const {
   selectAccount,
   selectFolder,
   selectMessage,
+  loadMoreMessages,
   setMessageSeen,
   deleteMessage,
   emptyTrash,
@@ -163,7 +165,6 @@ const inlineAttachmentLabel = computed(() => {
   return `${count} ${count === 1 ? 'file incorporato nel messaggio' : 'file incorporati nel messaggio'}`
 })
 
-const previewText = (m) => m.text || stripHtml(m.html || '')
 
 function toggleMenu() {
   menuOpen.value = !menuOpen.value
@@ -245,18 +246,18 @@ async function checkUpdateManual() {
 }
 
 onMounted(async () => {
-  bootstrap()
+  if (window.webison?.onMailNew) {
+    offMailNew = window.webison.onMailNew((payload) => {
+      handleMailNew(payload)
+    })
+  }
+  bootstrap().catch(err => { state.error = err.message })
   document.addEventListener('click', onDocClick)
   document.addEventListener('contextmenu', onGlobalContextMenu)
   try {
     appVersion.value = await window.webison.getAppVersion()
   } catch {
     appVersion.value = ''
-  }
-  if (window.webison?.onMailNew) {
-    offMailNew = window.webison.onMailNew((payload) => {
-      handleMailNew(payload)
-    })
   }
   if (window.webison?.onUpdateAvailable) {
     offUpdates.push(window.webison.onUpdateAvailable((payload) => {
@@ -465,7 +466,7 @@ onBeforeUnmount(() => {
             v-if="isTrashFolder"
             type="button"
             class="btn btn-danger btn-sm"
-            :disabled="!state.messages.length || state.loading"
+            :disabled="!state.messageTotal || state.loading"
             @click="emptyTrash"
           >
             Svuota cestino
@@ -497,34 +498,15 @@ onBeforeUnmount(() => {
             </button>
           </div>
           <span class="status">
-            {{ state.syncing || state.loading ? '…' : `${state.messages.length}` }}
+            {{ state.loadingMore && !state.messages.length ? '…' : `${state.messageTotal}` }}
           </span>
         </div>
 
-        <div class="message-list" @click="closeCtxMenu">
-          <template v-for="group in messageGroups" :key="group.key">
-            <div class="list-group-label">{{ group.label }}</div>
-            <button
-              v-for="m in group.items"
-              :key="m.uid"
-              class="message-row"
-              :class="{ active: m.uid === state.selectedUid, unread: !m.seen }"
-              @click="selectMessage(m.uid)"
-              @contextmenu="openCtxMenu($event, m)"
-            >
-              <div class="top">
-                <div class="from">
-                  {{ isSentFolder ? (m.to || '(destinatario)') : (m.from || '(mittente)') }}
-                </div>
-                <span class="date">{{ formatDate(m.date) }}</span>
-              </div>
-              <div class="subject">
-                <span v-if="messageHasAttachments(m)" class="attach-flag" title="Contiene allegati" aria-label="Contiene allegati">A</span>
-                {{ m.subject }}
-              </div>
-              <div class="preview">{{ previewText(m) }}</div>
-            </button>
-          </template>
+        <VirtualMessageList :groups="messageGroups" :selected-uid="state.selectedUid"
+          :sent="isSentFolder" :format-date="formatDate" :has-attachments="messageHasAttachments"
+          :has-more="state.nextCursor != null" :loading="state.loadingMore"
+          :view-key="JSON.stringify([state.accountId, state.folder, state.listFilter])"
+          @select="selectMessage" @context="openCtxMenu" @more="loadMoreMessages" @close-context="closeCtxMenu">
           <p v-if="!messageGroups.length" class="empty">
             {{
               !state.accountId
@@ -538,7 +520,7 @@ onBeforeUnmount(() => {
                       : 'Nessun messaggio. Premi Aggiorna.'
             }}
           </p>
-        </div>
+        </VirtualMessageList>
       </section>
 
       <button

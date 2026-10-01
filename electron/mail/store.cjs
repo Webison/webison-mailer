@@ -4,6 +4,8 @@ const { randomUUID } = require('crypto')
 const { validAccountId } = require('./validation.cjs')
 const attachments = require('./attachments.cjs')
 
+const { createMailboxStore } = require('./mailbox-store.cjs')
+const mailbox = createMailboxStore(mailboxDir, attachments)
 let root = ''
 
 function ensureDir(dir) {
@@ -61,6 +63,7 @@ function writeJson(file, data) {
 }
 
 function init(userDataPath) {
+  mailbox.reset()
   root = path.join(userDataPath, 'webison-data')
   ensureDir(root)
   ensureDir(path.join(root, 'mail'))
@@ -97,6 +100,7 @@ function saveAccount(account) {
 
 function deleteAccount(id) {
   const safeId = validAccountId(id)
+  mailbox.reset()
   writeJson(
     accountsPath(),
     listAccounts().filter((a) => a.id !== safeId),
@@ -108,85 +112,6 @@ function deleteAccount(id) {
     delete notify[safeId]
     writeJson(notifyStatePath(), notify)
   }
-}
-
-function listMessages(accountId, folder) {
-  return readJson(messagesPath(accountId, folder), [])
-}
-
-function saveMessages(accountId, folder, messages) {
-  const existing = listMessages(accountId, folder)
-  const byUid = new Map(existing.map((m) => [m.uid, m]))
-  for (const msg of messages) byUid.set(msg.uid, { ...byUid.get(msg.uid), ...msg })
-  const merged = [...byUid.values()].sort((a, b) => (b.date || 0) - (a.date || 0))
-  writeJson(messagesPath(accountId, folder), merged)
-}
-
-function getMessage(accountId, folder, uid) {
-  return listMessages(accountId, folder).find((m) => String(m.uid) === String(uid)) || null
-}
-
-function setMessageSeen(accountId, folder, uid, seen) {
-  const list = listMessages(accountId, folder)
-  const idx = list.findIndex((m) => String(m.uid) === String(uid))
-  if (idx < 0) return null
-  list[idx] = { ...list[idx], seen: Boolean(seen) }
-  writeJson(messagesPath(accountId, folder), list)
-  return list[idx]
-}
-
-function clearMessages(accountId, folder) {
-  // Serve per evitare cache locale con stati "non letta" ormai superati.
-  try {
-    fs.rmSync(messagesPath(accountId, folder), { force: true })
-  } catch {
-    // ignore
-  }
-  try {
-    attachments.clearFolderAttachments(accountId, folder)
-  } catch {
-    // ignore
-  }
-  return true
-}
-
-function removeMessages(accountId, folder, uids) {
-  const set = new Set((Array.isArray(uids) ? uids : [uids]).map(String))
-  const list = listMessages(accountId, folder)
-  const removed = list.filter((m) => set.has(String(m.uid)))
-  const next = list.filter((m) => !set.has(String(m.uid)))
-  writeJson(messagesPath(accountId, folder), next)
-  attachments.deleteForMessages(accountId, folder, removed.map((m) => m.uid))
-  return next
-}
-
-function moveMessages(accountId, sourceFolder, destinationFolder, uids, uidMap = {}) {
-  const set = new Set((Array.isArray(uids) ? uids : [uids]).map(String))
-  const source = listMessages(accountId, sourceFolder)
-  const selected = source.filter((message) => set.has(String(message.uid)))
-  const remaining = source.filter((message) => !set.has(String(message.uid)))
-  const moved = selected
-    .map((message) => {
-      const destinationUid = uidMap?.[String(message.uid)]
-      if (destinationUid == null) return null
-      try {
-        attachments.moveForMessage(
-          accountId,
-          sourceFolder,
-          destinationFolder,
-          message.uid,
-          destinationUid,
-        )
-      } catch {
-        // Il messaggio viene comunque spostato in cache.
-      }
-      return { ...message, uid: destinationUid }
-    })
-    .filter(Boolean)
-
-  writeJson(messagesPath(accountId, sourceFolder), remaining)
-  if (moved.length) saveMessages(accountId, destinationFolder, moved)
-  return { source: remaining, moved }
 }
 
 function listContacts() {
@@ -305,13 +230,7 @@ module.exports = {
   getAccount,
   saveAccount,
   deleteAccount,
-  listMessages,
-  saveMessages,
-  getMessage,
-  setMessageSeen,
-  clearMessages,
-  removeMessages,
-  moveMessages,
+  ...mailbox,
   listContacts,
   saveContact,
   deleteContact,

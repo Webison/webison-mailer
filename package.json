@@ -1,7 +1,7 @@
 {
   "name": "webison-mailer",
   "productName": "Webison Mailer",
-  "version": "1.7.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Webison Mailer — client email locale multi-account",
   "author": "Webison",
@@ -24,7 +24,8 @@
     "release": "npm run build && electron-builder --win --publish always",
     "version:patch": "npm version patch --no-git-tag-version",
     "version:minor": "npm version minor --no-git-tag-version",
-    "version:major": "npm version major --no-git-tag-version"
+    "version:major": "npm version major --no-git-tag-version",
+    "test:electron": "npm run build && electron test/electron-smoke.cjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",

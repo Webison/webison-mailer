@@ -100,91 +100,96 @@ function normalizeReferences(value) {
 }
 
 async function fetchMessages(account, folder = 'INBOX', limit = 50, options = {}) {
+  return withClient(account, async client => {
+    const lock = await client.getMailboxLock(folder)
+    try { return await fetchMessagesWithClient(client, account, folder, limit, options) }
+    finally { lock.release() }
+  })
+}
+
+async function fetchMessagesWithClient(client, account, folder, limit = 50, options = {}) {
   const leaveOnServer = account.leaveOnServer !== false
   const accountId = options.accountId || account.id
   const storeFolder = options.storeAs || folder
 
-  return withClient(account, async (client) => {
-    const lock = await client.getMailboxLock(folder)
+  const total = client.mailbox.exists || 0
+  if (!total) return []
+
+  const from = Math.max(1, total - limit + 1)
+  const messages = []
+  const fetchedUids = []
+
+  for await (const msg of client.fetch(options.uids ? options.uids.join(',') : `${from}:*`, {
+    uid: true,
+    flags: true,
+    envelope: true,
+    source: true,
+  }, { uid: !!options.uids })) {
+    let parsed
     try {
-      const total = client.mailbox.exists || 0
-      if (!total) return []
-
-      const from = Math.max(1, total - limit + 1)
-      const messages = []
-      const fetchedUids = []
-
-      for await (const msg of client.fetch(`${from}:*`, {
-        uid: true,
-        flags: true,
-        envelope: true,
-        source: true,
-      })) {
-        let parsed
-        try {
-          parsed = await simpleParser(msg.source)
-        } catch {
-          parsed = null
-        }
-
-        const envelope = msg.envelope || {}
-        fetchedUids.push(msg.uid)
-
-        let attachmentMeta = []
-        if (accountId && parsed?.attachments?.length) {
-          try {
-            attachmentMeta = attachments.replaceMessageParts(
-              accountId,
-              storeFolder,
-              msg.uid,
-              parsed.attachments.map((part, index) => ({
-                id: `att-${index + 1}`,
-                filename: part.filename,
-                contentType: part.contentType,
-                contentId: part.contentId || part.cid,
-                disposition: part.contentDisposition || part.disposition,
-                content: part.content,
-                index,
-              })),
-            )
-          } catch {
-            attachmentMeta = []
-          }
-        } else if (accountId) {
-          try {
-            attachments.deleteForMessage(accountId, storeFolder, msg.uid)
-          } catch {
-            // ignore
-          }
-        }
-
-        messages.push({
-          uid: msg.uid,
-          subject: parsed?.subject || envelope.subject || '(senza oggetto)',
-          from: parsed?.from ? addrList(parsed.from) : (envelope.from || []).map((a) => a.address || a.name).join(', '),
-          to: parsed?.to ? addrList(parsed.to) : (envelope.to || []).map((a) => a.address || a.name).join(', '),
-          cc: parsed?.cc ? addrList(parsed.cc) : (envelope.cc || []).map((a) => a.address || a.name).join(', '),
-          date: (parsed?.date || envelope.date || new Date()).getTime(),
-          seen: msg.flags?.has('\\Seen') || false,
-          text: parsed?.text || '',
-          html: typeof parsed?.html === 'string' ? parsed.html : '',
-          messageId: parsed?.messageId || envelope.messageId || null,
-          inReplyTo: parsed?.inReplyTo || null,
-          references: normalizeReferences(parsed?.references),
-          attachments: attachmentMeta,
-        })
-      }
-
-      // Di default lascia copia sul server; solo se disattivato elimina dopo il download
-      if (!leaveOnServer && fetchedUids.length) {
-        await client.messageDelete(fetchedUids.join(','), { uid: true })
-      }
-
-      return messages.sort((a, b) => b.date - a.date)
-    } finally {
-      lock.release()
+      parsed = await simpleParser(msg.source)
+    } catch (err) {
+      if (options.saveMessage) throw err
+      parsed = null
     }
-  })
+
+    const envelope = msg.envelope || {}
+    fetchedUids.push(msg.uid)
+
+    let attachmentMeta = []
+    if (accountId && parsed?.attachments?.length) {
+      try {
+        attachmentMeta = attachments.replaceMessageParts(
+          accountId,
+          storeFolder,
+          msg.uid,
+          parsed.attachments.map((part, index) => ({
+            id: `att-${index + 1}`,
+            filename: part.filename,
+            contentType: part.contentType,
+            contentId: part.contentId || part.cid,
+            disposition: part.contentDisposition || part.disposition,
+            content: part.content,
+            index,
+          })),
+        )
+      } catch (err) {
+        if (options.saveMessage) throw err
+        attachmentMeta = []
+      }
+    } else if (accountId) {
+      try {
+        attachments.deleteForMessage(accountId, storeFolder, msg.uid)
+      } catch {
+        // ignore
+      }
+    }
+
+    const message = {
+      uid: msg.uid,
+      subject: parsed?.subject || envelope.subject || '(senza oggetto)',
+      from: parsed?.from ? addrList(parsed.from) : (envelope.from || []).map((a) => a.address || a.name).join(', '),
+      to: parsed?.to ? addrList(parsed.to) : (envelope.to || []).map((a) => a.address || a.name).join(', '),
+      cc: parsed?.cc ? addrList(parsed.cc) : (envelope.cc || []).map((a) => a.address || a.name).join(', '),
+      date: (parsed?.date || envelope.date || new Date()).getTime(),
+      seen: msg.flags?.has('\\Seen') || false,
+      text: parsed?.text || '',
+      html: typeof parsed?.html === 'string' ? parsed.html : '',
+      messageId: parsed?.messageId || envelope.messageId || null,
+      inReplyTo: parsed?.inReplyTo || null,
+      references: normalizeReferences(parsed?.references),
+      attachments: attachmentMeta,
+    }
+    if (options.saveMessage) await options.saveMessage(message)
+    messages.push(message)
+  }
+
+  // Di default lascia copia sul server; solo se disattivato elimina dopo il download
+  if (!leaveOnServer && fetchedUids.length && options.saveMessage) {
+    await client.messageDelete(fetchedUids.join(','), { uid: true })
+  }
+
+  return messages.sort((a, b) => b.date - a.date)
 }
 
 async function appendToSent(account, {
@@ -384,6 +389,8 @@ async function emptyTrash(account) {
 }
 
 module.exports = {
+  withClient,
+  fetchMessagesWithClient,
   listFolders,
   fetchMessages,
   appendToSent,
